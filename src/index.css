@@ -1,36 +1,76 @@
 @import "tailwindcss";
 
-.bg-space-void {
-  background-color: #020408;
-}
-.bg-space-panel {
-  background-color: #05070a;
-}
-.bg-space-card {
-  background-color: #0e1217;
-}
-.bg-space-header {
-  background-color: #0a0f18;
-}
-.border-cyan-glow {
-  border-color: rgba(6, 182, 212, 0.3);
-}
-.shadow-cyan-glow {
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
-}
-.shadow-emerald-glow {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
-}
-.bg-grid-dots {
-  background-image: radial-gradient(#334155 1px, transparent 1px);
-  background-size: 32px 32px;
+@layer utilities {
+  /* Font Family classes */
+  .font-jakarta {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  .font-outfit {
+    font-family: 'Outfit', sans-serif;
+  }
+  .font-syne {
+    font-family: 'Syne', sans-serif;
+  }
+  .font-space {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+  .font-playfair {
+    font-family: 'Playfair Display', serif;
+  }
+  .font-poppins {
+    font-family: 'Poppins', sans-serif;
+  }
+  .font-inter {
+    font-family: 'Inter', sans-serif;
+  }
+  .font-mono-jb {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Clean custom scrollbar for horizontal canvas */
+  #previewArea::-webkit-scrollbar {
+    height: 6px;
+  }
+  #previewArea::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  #previewArea::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.3);
+    border-radius: 9999px;
+  }
+  #previewArea::-webkit-scrollbar-thumb:hover {
+    background: #3b82f6;
+  }
 }
 
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(1000%); }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-scanline {
-  animation: scanline 8s linear infinite;
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
+
+@keyframes googleGlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.google-gradient-bar {
+  background: linear-gradient(90deg, #4285f4, #ea4335, #fbbc05, #34a853, #4285f4);
+  background-size: 300% 300%;
+  animation: googleGlow 6s ease infinite;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

@@ -1,6 +1,6 @@
 {
-  "name": "UGCGen AI",
-  "description": "AI UGC Video, Image & Carousel Studio with Scriptwriting and Asset Management",
+  "name": "CarouselX & E-Book Studio",
+  "description": "AI-powered social media carousel and digital E-Book generator for Instagram, LinkedIn, and digital marketplaces with multi-provider AI support and Google Workspace sync.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

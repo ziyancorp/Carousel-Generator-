@@ -1,359 +1,770 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Video, CreditCard, Plus, Layers, Menu, X, Zap, 
-  ImageIcon, Sparkles, CheckCircle2, ShieldAlert, Activity, Terminal, Radio
+import React, { useState, useEffect, useRef } from 'react';
+import { toPng } from 'html-to-image';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  Layers,
+  Plus,
+  Download,
+  Sparkles,
+  Wand2,
+  FileEdit,
+  Key,
+  HardDrive,
+  Table,
+  CheckCircle2,
+  Ratio,
+  FolderUp,
+  BookOpen
 } from 'lucide-react';
-import { VideoStudio } from './components/VideoStudio';
-import { ImageStudio } from './components/ImageStudio';
-import { AssetLibrary } from './components/AssetLibrary';
-import { BillingView } from './components/BillingView';
-import { UserProfile, VideoAsset, ImageAsset } from './types';
-import { INITIAL_VIDEOS, INITIAL_IMAGES } from './data';
+import { Slide, AspectRatio, ThemeId, FontId, AppUiMode, ActiveAppTab, ApiKeyConfig, EbookData } from './types';
+import { THEMES, FONT_OPTIONS, DEFAULT_THEME_ID, DEFAULT_FONT_ID, getTheme, getFont } from './constants/themes';
+import { SAMPLE_PRESETS } from './data/samplePresets';
+import { SAMPLE_EBOOKS } from './data/sampleEbooks';
+import { Navbar } from './components/Navbar';
+import { Sidebar } from './components/Sidebar';
+import { SlideCard } from './components/SlideCard';
+import { SlideEditorModal } from './components/SlideEditorModal';
+import { GoogleSyncModal } from './components/GoogleSyncModal';
+import { ExportModal } from './components/ExportModal';
+import { ApiKeyModal } from './components/ApiKeyModal';
+import { ContentWritingModal } from './components/ContentWritingModal';
+import { EbookReaderView } from './components/EbookReaderView';
+import { authenticateGoogle, getStoredGoogleToken } from './services/googleWorkspace';
 
 export default function App() {
-  const [currentRoute, setCurrentRoute] = useState<'create-video' | 'create-image' | 'library' | 'billing'>('create-image');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [systemTime, setSystemTime] = useState('04:12:89 UTC');
+  const [activeTab, setActiveTab] = useState<ActiveAppTab>('carousel');
+  const [topic, setTopic] = useState('Run Claude Code for Free with Kimi K2.6');
+  const [slideCount, setSlideCount] = useState(8);
+  const [authorName, setAuthorName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('carouselx_author_name') || 'Arijal Meutuwah';
+    } catch {
+      return 'Arijal Meutuwah';
+    }
+  });
+  const [authorHandle, setAuthorHandle] = useState<string>(() => {
+    try {
+      return localStorage.getItem('carouselx_author_handle') || '@abangjal';
+    } catch {
+      return '@abangjal';
+    }
+  });
+  const [tone, setTone] = useState('langkah demi langkah tutorial');
+  const [language, setLanguage] = useState('English');
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>('tech-guide-pro');
+  const [currentFont, setCurrentFont] = useState<FontId>('jakarta');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('4:5');
+  const [appUiMode, setAppUiMode] = useState<AppUiMode>('dark');
+  const [slides, setSlides] = useState<Slide[]>(SAMPLE_PRESETS[0].slides);
 
-  const [user, setUser] = useState<UserProfile>({
-    name: 'Cmdr. Creator',
-    email: 'creator@example.com',
-    credits: 15,
-    tier: 'pro'
+  // E-Book State
+  const [currentEbook, setCurrentEbook] = useState<EbookData>(SAMPLE_EBOOKS[0]);
+
+  // Multi-Provider API Key Config
+  const [apiKeyConfig, setApiKeyConfig] = useState<ApiKeyConfig>({
+    provider: 'gemini',
+    apiKey: '',
+    model: 'gemini-2.5-flash',
   });
 
-  const [videos, setVideos] = useState<VideoAsset[]>(INITIAL_VIDEOS);
-  const [images, setImages] = useState<ImageAsset[]>(INITIAL_IMAGES);
+  // Mobile View Switcher (Carousel Mode: 'sidebar' | 'preview')
+  const [mobileView, setMobileView] = useState<'sidebar' | 'preview'>('preview');
 
-  // System clock & keyframes
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [statusType, setStatusType] = useState<'info' | 'error' | 'success' | ''>('');
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+
+  // Active slide index for pagination dots
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+
+  // Modals state
+  const [editingSlide, setEditingSlide] = useState<Slide | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number>(0);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [isContentWritingModalOpen, setIsContentWritingModalOpen] = useState(false);
+  const [googleModal, setGoogleModal] = useState<{
+    isOpen: boolean;
+    mode: 'drive_export' | 'sheets_sync' | 'sheets_import';
+  }>({
+    isOpen: false,
+    mode: 'drive_export',
+  });
+
+  const [polishingIndex, setPolishingIndex] = useState<number | null>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+
+  // Load preferences from localStorage on init
   useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      const timeStr = `${now.getUTCHours().toString().padStart(2, '0')}:${now.getUTCMinutes().toString().padStart(2, '0')}:${now.getUTCSeconds().toString().padStart(2, '0')} UTC`;
-      setSystemTime(timeStr);
-    }, 1000);
+    try {
+      const savedConfig = localStorage.getItem('carouselx_ai_config');
+      if (savedConfig) {
+        setApiKeyConfig(JSON.parse(savedConfig));
+      } else {
+        const legacyKey = localStorage.getItem('carouselx_gemini_key');
+        if (legacyKey) {
+          setApiKeyConfig({ provider: 'gemini', apiKey: legacyKey, model: 'gemini-2.5-flash' });
+        }
+      }
 
-    const style = document.createElement('style');
-    style.innerHTML = `
-      @keyframes shimmer { 100% { transform: translateX(100%); } }
-      .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-      .custom-scrollbar::-webkit-scrollbar-track { background: rgba(5,7,10,0.8); }
-      .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(6,182,212,0.25); border-radius: 4px; }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.5); }
-    `;
-    document.head.appendChild(style);
+      const savedTheme = localStorage.getItem('carouselx_theme');
+      if (savedTheme && THEMES[savedTheme as ThemeId]) setCurrentTheme(savedTheme as ThemeId);
 
-    return () => {
-      clearInterval(timer);
-      document.head.removeChild(style);
-    };
+      const savedFont = localStorage.getItem('carouselx_font');
+      if (savedFont) setCurrentFont(savedFont as FontId);
+
+      const savedUiMode = localStorage.getItem('carouselx_ui_mode');
+      if (savedUiMode === 'light' || savedUiMode === 'dark') setAppUiMode(savedUiMode);
+
+      const token = getStoredGoogleToken();
+      if (token) setIsGoogleConnected(true);
+    } catch {
+      // ignore
+    }
   }, []);
 
-  const handleDeductCredit = () => {
-    setUser(prev => ({
-      ...prev,
-      credits: Math.max(0, prev.credits - 1)
+  // Save creator branding permanently
+  useEffect(() => {
+    try {
+      localStorage.setItem('carouselx_author_name', authorName);
+    } catch {
+      // ignore
+    }
+  }, [authorName]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('carouselx_author_handle', authorHandle);
+    } catch {
+      // ignore
+    }
+  }, [authorHandle]);
+
+  const handleSaveApiKeyConfig = (newConfig: ApiKeyConfig) => {
+    setApiKeyConfig(newConfig);
+    try {
+      localStorage.setItem('carouselx_ai_config', JSON.stringify(newConfig));
+      if (newConfig.apiKey) {
+        localStorage.setItem('carouselx_gemini_key', newConfig.apiKey);
+      }
+    } catch {
+      // ignore
+    }
+    setStatusType('success');
+    setStatusMessage(`Konfigurasi Provider ${newConfig.provider.toUpperCase()} tersimpan!`);
+    setTimeout(() => setStatusMessage(''), 2500);
+  };
+
+  const handleThemeChange = (newTheme: ThemeId) => {
+    setCurrentTheme(newTheme);
+    try {
+      localStorage.setItem('carouselx_theme', newTheme);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleFontChange = (newFont: FontId) => {
+    setCurrentFont(newFont);
+    try {
+      localStorage.setItem('carouselx_font', newFont);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleUiMode = () => {
+    const nextMode: AppUiMode = appUiMode === 'dark' ? 'light' : 'dark';
+    setAppUiMode(nextMode);
+    try {
+      localStorage.setItem('carouselx_ui_mode', nextMode);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleConnectGoogle = async () => {
+    try {
+      setStatusType('info');
+      setStatusMessage('Menghubungkan ke Google Workspace...');
+      await authenticateGoogle();
+      setIsGoogleConnected(true);
+      setStatusType('success');
+      setStatusMessage('Berhasil terhubung ke Google Drive & Sheets!');
+      setTimeout(() => setStatusMessage(''), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setStatusType('error');
+      setStatusMessage(err.message || 'Gagal otentikasi Google Workspace.');
+      setTimeout(() => setStatusMessage(''), 4000);
+    }
+  };
+
+  // Generate Carousel with AI (using active provider)
+  const handleGenerateCarousel = async () => {
+    if (!topic.trim()) {
+      setStatusType('error');
+      setStatusMessage('Silakan masukkan topik carousel terlebih dahulu.');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+
+    setIsGenerating(true);
+    setStatusType('info');
+    setStatusMessage(`Membuat ${slideCount} slide dengan ${apiKeyConfig.provider.toUpperCase()} AI...`);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKeyConfig.apiKey) {
+        headers['x-gemini-key'] = apiKeyConfig.apiKey;
+      }
+
+      const res = await fetch('/api/generate-carousel', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          topic,
+          slideCount,
+          tone,
+          language,
+          authorName: authorHandle || authorName,
+          provider: apiKeyConfig.provider,
+          apiKey: apiKeyConfig.apiKey,
+          model: apiKeyConfig.model,
+          baseUrl: apiKeyConfig.baseUrl,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.slides && data.slides.length > 0) {
+        setSlides(data.slides);
+        setActiveSlideIndex(0);
+        setMobileView('preview');
+        setStatusType('success');
+        setStatusMessage(
+          data.isFallback
+            ? 'Format template siap digunakan.'
+            : `✓ ${data.slides.length} slide berhasil dibuat dengan ${apiKeyConfig.provider.toUpperCase()}!`
+        );
+      } else {
+        throw new Error(data.error || 'Gagal menghasilkan slide.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setStatusType('error');
+      setStatusMessage(err.message || 'Terjadi kesalahan saat memanggil AI.');
+    } finally {
+      setIsGenerating(false);
+      setTimeout(() => setStatusMessage(''), 3500);
+    }
+  };
+
+  // Apply written / summarized content to carousel
+  const handleApplyWrittenContent = (newSlides: Slide[], newTopic: string) => {
+    setSlides(newSlides);
+    if (newTopic) setTopic(newTopic);
+    setSlideCount(newSlides.length);
+    setActiveSlideIndex(0);
+    setMobileView('preview');
+    setStatusType('success');
+    setStatusMessage(`Berhasil menyusun ${newSlides.length} slide dari draf tulisan!`);
+    setTimeout(() => setStatusMessage(''), 3000);
+  };
+
+  // AI Polish single slide inline
+  const handleInlineAiPolish = async (index: number) => {
+    const target = slides[index];
+    if (!target) return;
+
+    setPolishingIndex(index);
+    try {
+      const res = await fetch('/api/structure-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawContent: `Slide Type: ${target.type}\nTitle: ${target.title}\nBody: ${target.body}\nPoints: ${(target.points || []).join(', ')}`,
+          slideCount: 1,
+          language,
+          authorName: authorHandle || authorName,
+          provider: apiKeyConfig.provider,
+          apiKey: apiKeyConfig.apiKey,
+          model: apiKeyConfig.model,
+          baseUrl: apiKeyConfig.baseUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.slides && data.slides[0]) {
+        const polished = data.slides[0];
+        const updated = [...slides];
+        updated[index] = {
+          ...target,
+          title: polished.title || target.title,
+          body: polished.body || target.body,
+          points: polished.points && polished.points.length > 0 ? polished.points : target.points,
+        };
+        setSlides(updated);
+        setStatusType('success');
+        setStatusMessage(`Slide ${index + 1} berhasil diperhalus oleh AI!`);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPolishingIndex(null);
+      setTimeout(() => setStatusMessage(''), 2500);
+    }
+  };
+
+  // AI Polish inside Slide Editor Modal
+  const handleModalAiPolish = async (slide: Slide): Promise<Slide> => {
+    try {
+      const res = await fetch('/api/structure-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawContent: `Title: ${slide.title}\nBody: ${slide.body}\nPoints: ${(slide.points || []).join(', ')}`,
+          slideCount: 1,
+          language,
+          authorName: authorHandle || authorName,
+          provider: apiKeyConfig.provider,
+          apiKey: apiKeyConfig.apiKey,
+          model: apiKeyConfig.model,
+          baseUrl: apiKeyConfig.baseUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.slides && data.slides[0]) {
+        const p = data.slides[0];
+        return {
+          ...slide,
+          title: p.title || slide.title,
+          body: p.body || slide.body,
+          points: p.points && p.points.length > 0 ? p.points : slide.points,
+        };
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return slide;
+  };
+
+  // Reorder slides
+  const handleMoveSlide = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= slides.length) return;
+
+    const updated = [...slides];
+    const temp = updated[index];
+    updated[index] = updated[targetIdx];
+    updated[targetIdx] = temp;
+
+    // Recalculate slide numbers
+    const finalSlides = updated.map((s, idx) => ({ ...s, slide_number: idx + 1 }));
+    setSlides(finalSlides);
+  };
+
+  // Duplicate slide
+  const handleDuplicateSlide = (index: number) => {
+    const slideToDup = slides[index];
+    if (!slideToDup) return;
+    const duplicated: Slide = {
+      ...slideToDup,
+      id: `slide-dup-${Date.now()}`,
+      title: `${slideToDup.title} (Salinan)`,
+    };
+    const updated = [...slides.slice(0, index + 1), duplicated, ...slides.slice(index + 1)].map((s, idx) => ({
+      ...s,
+      slide_number: idx + 1,
     }));
+    setSlides(updated);
+    setSlideCount(updated.length);
+    setStatusType('success');
+    setStatusMessage(`Slide #${index + 1} berhasil diduplikasi!`);
+    setTimeout(() => setStatusMessage(''), 2000);
   };
 
-  const handleAddCredits = (amount: number) => {
-    setUser(prev => ({
-      ...prev,
-      credits: prev.credits + amount
-    }));
+  // Delete slide
+  const handleDeleteSlide = (index: number) => {
+    if (slides.length <= 1) {
+      setStatusType('error');
+      setStatusMessage('Carousel harus memiliki minimal 1 slide.');
+      setTimeout(() => setStatusMessage(''), 2500);
+      return;
+    }
+    const updated = slides.filter((_, i) => i !== index).map((s, idx) => ({ ...s, slide_number: idx + 1 }));
+    setSlides(updated);
+    setSlideCount(updated.length);
   };
 
-  const handleUpgradePlan = (tier: 'free' | 'pro' | 'brand') => {
-    setUser(prev => ({
-      ...prev,
-      tier,
-      credits: tier === 'brand' ? 200 : tier === 'pro' ? 50 : 5
-    }));
+  // Add new slide
+  const handleAddSlide = () => {
+    const newSlideNumber = slides.length + 1;
+    const newSlide: Slide = {
+      id: `slide-custom-${Date.now()}`,
+      slide_number: newSlideNumber,
+      type: 'content',
+      badge: `Langkah 0${newSlideNumber - 1}`,
+      title: 'Judul Slide Baru',
+      body: 'Tambahkan penjelasan berbobot di sini agar slide kamu informatif dan mudah dipahami pembaca.',
+      points: ['Poin utama pertama', 'Poin pendukung kedua', 'Contoh praktis ketiga'],
+      footer_hint: 'Geser 👉',
+    };
+    setSlides([...slides, newSlide]);
+    setSlideCount(slides.length + 1);
+    setActiveSlideIndex(slides.length);
   };
 
-  const handleSaveVideo = (video: VideoAsset) => {
-    setVideos(prev => [video, ...prev]);
+  // Render high-res PNG blobs for export
+  const renderSlideBlobs = async (): Promise<{ filename: string; blob: Blob; dataUrl: string }[]> => {
+    const results: { filename: string; blob: Blob; dataUrl: string }[] = [];
+
+    for (let i = 0; i < slides.length; i++) {
+      const node = document.getElementById(`slide-card-${i}`);
+      if (!node) continue;
+
+      const dataUrl = await toPng(node, {
+        pixelRatio: 3,
+        cacheBust: true,
+        quality: 0.98,
+        filter: (child: HTMLElement) => {
+          if (child.classList && child.classList.contains('slide-action-overlay')) {
+            return false;
+          }
+          return true;
+        },
+      });
+
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const filename = `Slide_${String(i + 1).padStart(2, '0')}.png`;
+      results.push({ filename, blob, dataUrl });
+    }
+
+    return results;
   };
 
-  const handleSaveImage = (image: ImageAsset) => {
-    setImages(prev => [image, ...prev]);
-  };
-
-  const handleDeleteVideo = (id: string) => {
-    setVideos(prev => prev.filter(v => v.id !== id));
-  };
-
-  const handleDeleteImage = (id: string) => {
-    setImages(prev => prev.filter(img => img.id !== id));
-  };
-
-  const navItems = [
-    { id: 'create-image', icon: ImageIcon, label: 'Image & Carousel', badge: 'FREE' },
-    { id: 'create-video', icon: Video, label: 'UGC Video Studio', cost: '1 Credit' },
-    { id: 'library', icon: Layers, label: 'Asset Library', count: videos.length + images.length },
-    { id: 'billing', icon: CreditCard, label: 'Credits & Billing' }
-  ];
+  const activeTheme = getTheme(currentTheme);
+  const activeFont = getFont(currentFont);
+  const isDarkUi = appUiMode === 'dark';
 
   return (
-    <div className="flex h-screen bg-[#020408] text-slate-300 font-sans selection:bg-cyan-500/30 overflow-hidden w-full select-none">
-      
-      {/* DESKTOP SIDEBAR */}
-      <aside className="hidden md:flex w-64 bg-[#05070a] border-r border-cyan-900/30 flex-col relative z-20 shrink-0 shadow-2xl">
-        
-        {/* SIDEBAR LOGO HEADER */}
-        <div className="h-16 flex items-center px-5 bg-[#0a0f18] border-b border-cyan-900/40 shrink-0">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setCurrentRoute('create-image')}>
-             <div className="w-9 h-9 bg-cyan-500/10 border border-cyan-500/50 rounded flex items-center justify-center shadow-[0_0_12px_rgba(6,182,212,0.3)] shrink-0">
-               <div className="w-3.5 h-3.5 bg-cyan-400 rotate-45" />
-             </div>
-             <div>
-               <span className="font-mono text-xs font-bold tracking-[0.2em] text-cyan-400 uppercase block leading-none mb-1">
-                 UGCGEN AI
-               </span>
-               <span className="text-[9px] text-slate-500 font-mono tracking-wider block">
-                 STRATOS-IX // COMMAND
-               </span>
-             </div>
-          </div>
-        </div>
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
+      isDarkUi ? 'bg-[#0a0a0d] text-gray-100' : 'bg-[#f4f5f8] text-gray-900'
+    }`}>
+      {/* Top Navbar */}
+      <Navbar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        aspectRatio={aspectRatio}
+        onAspectRatioChange={setAspectRatio}
+        currentTheme={currentTheme}
+        onThemeChange={handleThemeChange}
+        currentFont={currentFont}
+        onFontChange={handleFontChange}
+        appUiMode={appUiMode}
+        onToggleAppUiMode={handleToggleUiMode}
+        isGoogleConnected={isGoogleConnected}
+        onConnectGoogle={handleConnectGoogle}
+        onOpenExportModal={() => setIsExportModalOpen(true)}
+        onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
+        onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+        onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
+        apiKeyConfig={apiKeyConfig}
+        slideCount={slides.length}
+      />
 
-        {/* SYSTEM STATUS MINI VITALS */}
-        <div className="px-5 py-4 border-b border-cyan-900/20 bg-[#070b12]">
-          <div className="text-[9px] font-mono font-bold text-slate-500 tracking-widest uppercase flex items-center justify-between mb-2">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              SYSTEM VITALS
-            </span>
-            <span className="text-emerald-400">ONLINE</span>
-          </div>
-          <div className="space-y-1.5 font-mono text-[10px]">
-            <div className="flex justify-between text-slate-400">
-              <span>RENDER ENGINE</span>
-              <span className="text-cyan-400">OPTIMAL</span>
-            </div>
-            <div className="h-1 bg-slate-800/80 rounded-full overflow-hidden">
-              <div className="h-full w-[92%] bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]" />
-            </div>
-          </div>
-        </div>
-
-        {/* NAV ITEMS */}
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto custom-scrollbar">
-          <div className="text-[9px] font-mono font-bold text-slate-500 mb-2 px-3 tracking-widest uppercase flex items-center gap-1.5">
-            <Terminal className="w-3 h-3 text-cyan-500" />
-            OPERATIONAL STUDIOS
-          </div>
-          {navItems.slice(0, 2).map(item => {
-            const isActive = currentRoute === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setCurrentRoute(item.id as any)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded border text-xs transition-all font-mono ${
-                  isActive
-                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                    : 'bg-[#0e1217]/50 border-slate-800/60 text-slate-400 hover:bg-[#0e1217] hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <item.icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-500'}`} />
-                  <span className="tracking-tight">{item.label}</span>
-                </div>
-                {item.badge ? (
-                  <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
-                    {item.badge}
-                  </span>
-                ) : (
-                  <span className="text-[9px] text-slate-500 font-mono">{item.cost}</span>
-                )}
-              </button>
-            );
-          })}
-
-          <div className="text-[9px] font-mono font-bold text-slate-500 mb-2 mt-5 px-3 tracking-widest uppercase flex items-center gap-1.5">
-            <Radio className="w-3 h-3 text-amber-500" />
-            DATA MANAGEMENT
-          </div>
-          {navItems.slice(2).map(item => {
-            const isActive = currentRoute === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setCurrentRoute(item.id as any)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded border text-xs transition-all font-mono ${
-                  isActive
-                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                    : 'bg-[#0e1217]/50 border-slate-800/60 text-slate-400 hover:bg-[#0e1217] hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <item.icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-500'}`} />
-                  <span className="tracking-tight">{item.label}</span>
-                </div>
-                {item.count !== undefined && (
-                  <span className="text-[9px] bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.5 rounded font-mono">
-                    {item.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* CREDITS FOOTER / PAYLOAD STATUS */}
-        <div className="p-3.5 border-t border-cyan-900/30 bg-[#070b12] shrink-0">
-          <div
-            onClick={() => setCurrentRoute('billing')}
-            className="cursor-pointer p-3 rounded bg-[#0e1217] border border-cyan-900/40 hover:border-cyan-500/50 transition-all shadow-inner"
+      {/* Status Bar Notification */}
+      <AnimatePresence>
+        {statusMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={`fixed top-18 right-6 z-50 px-4 py-2.5 rounded-xl shadow-xl border text-xs font-medium flex items-center gap-2 backdrop-blur-md ${
+              statusType === 'success'
+                ? 'bg-emerald-950/80 border-emerald-600 text-emerald-200'
+                : statusType === 'error'
+                ? 'bg-rose-950/80 border-rose-600 text-rose-200'
+                : 'bg-blue-950/80 border-blue-600 text-blue-200'
+            }`}
           >
-            <div className="text-[9px] font-mono text-slate-500 mb-1 flex items-center justify-between uppercase">
-              <span>VIDEO PAYLOAD</span>
-              <span className="text-amber-400 font-bold">{user.tier} TIER</span>
-            </div>
-            <div className="text-xl font-mono font-bold text-cyan-400 flex items-center justify-between">
-              <span className="flex items-center">
-                <Zap className="w-4 h-4 text-amber-400 mr-1.5 fill-amber-400" />
-                {user.credits} <span className="text-xs text-slate-500 ml-1">REMAINING</span>
-              </span>
-              <div className="w-2 h-2 bg-cyan-400 rounded-full animate-ping" />
-            </div>
-          </div>
-        </div>
-      </aside>
+            <div className={`w-2 h-2 rounded-full ${
+              statusType === 'success' ? 'bg-emerald-400' : statusType === 'error' ? 'bg-rose-400' : 'bg-blue-400 animate-ping'
+            }`} />
+            <span>{statusMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* MOBILE DRAWER */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
-          <aside className="w-3/4 max-w-[280px] h-full bg-[#05070a] border-r border-cyan-900/40 flex flex-col relative z-10 p-4">
-            <div className="flex items-center justify-between border-b border-cyan-900/30 pb-3 mb-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-7 h-7 bg-cyan-500/10 border border-cyan-500/50 rounded flex items-center justify-center">
-                  <div className="w-2.5 h-2.5 bg-cyan-400 rotate-45" />
-                </div>
-                <span className="font-mono text-xs font-bold text-cyan-400 tracking-widest uppercase">UGCGEN AI</span>
-              </div>
-              <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
+      {/* Main Workspace: Carousel Studio OR E-Book Studio */}
+      {activeTab === 'ebook' ? (
+        <EbookReaderView
+          currentEbook={currentEbook}
+          onUpdateEbook={setCurrentEbook}
+          carouselSlides={slides}
+          carouselTopic={topic}
+          authorName={authorName}
+          isDarkUi={isDarkUi}
+          apiKeyConfig={apiKeyConfig}
+          onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+        />
+      ) : (
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+          {/* Mobile View Toggle Bar (Only visible on small screens < md) */}
+          <div className={`md:hidden flex items-center justify-center p-2 border-b shrink-0 ${
+            isDarkUi ? 'bg-[#111114] border-[#1f1f23]' : 'bg-gray-100 border-gray-200'
+          }`}>
+            <div className={`flex items-center p-1 rounded-xl w-full max-w-sm border ${
+              isDarkUi ? 'bg-[#18181c] border-[#2d2d35]' : 'bg-white border-gray-300 shadow-sm'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setMobileView('sidebar')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                  mobileView === 'sidebar'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : isDarkUi ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span>Prompt & Opsi AI</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileView('preview')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                  mobileView === 'preview'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : isDarkUi ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Preview ({slides.length})</span>
               </button>
             </div>
+          </div>
 
-            <nav className="space-y-1.5 flex-1 font-mono">
-              {navItems.map(item => (
+          {/* Left Controls Sidebar (Visible when mobileView === 'sidebar' OR desktop >= md) */}
+          <div className={`${mobileView === 'sidebar' ? 'flex' : 'hidden'} md:flex h-full md:w-84 lg:w-[320px] shrink-0`}>
+            <Sidebar
+              topic={topic}
+              onTopicChange={setTopic}
+              slideCount={slideCount}
+              onSlideCountChange={setSlideCount}
+              authorName={authorName}
+              onAuthorNameChange={setAuthorName}
+              authorHandle={authorHandle}
+              onAuthorHandleChange={setAuthorHandle}
+              tone={tone}
+              onToneChange={setTone}
+              language={language}
+              onLanguageChange={setLanguage}
+              currentTheme={currentTheme}
+              onThemeChange={handleThemeChange}
+              currentFont={currentFont}
+              onFontChange={handleFontChange}
+              aspectRatio={aspectRatio}
+              onAspectRatioChange={setAspectRatio}
+              isGenerating={isGenerating}
+              onGenerate={handleGenerateCarousel}
+              onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
+              onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
+              onOpenSheetsImport={() => setGoogleModal({ isOpen: true, mode: 'sheets_import' })}
+              onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
+              onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+              apiKeyConfig={apiKeyConfig}
+              isGoogleConnected={isGoogleConnected}
+              onConnectGoogle={handleConnectGoogle}
+              onSelectPreset={(preset) => {
+                setTopic(preset.topic);
+                setSlides(preset.slides);
+                setSlideCount(preset.slides.length);
+                // Keep permanent creator branding intact (Arijal Meutuwah / @abangjal)
+                if (!authorName) setAuthorName(preset.authorName || 'Arijal Meutuwah');
+                if (!authorHandle) setAuthorHandle(preset.authorHandle || '@abangjal');
+                setCurrentTheme(preset.themeId);
+                setCurrentFont(preset.fontId);
+                setMobileView('preview');
+                setStatusType('success');
+                setStatusMessage(`Template "${preset.name}" berhasil dimuat!`);
+                setTimeout(() => setStatusMessage(''), 2500);
+              }}
+            />
+          </div>
+
+          {/* Right Main Slide Canvas Area (Visible when mobileView === 'preview' OR desktop >= md) */}
+          <main className={`${mobileView === 'preview' ? 'flex' : 'hidden'} md:flex flex-1 flex-col justify-between p-3 sm:p-6 overflow-hidden ${
+            isDarkUi ? 'bg-[#0a0a0d]' : 'bg-[#f4f5f8]'
+          }`}>
+            {/* Header info */}
+            <div className="flex items-center justify-between mb-3 sm:mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-500">
+                  Slide Preview ({slides.length} Slide)
+                </span>
+                <span className="text-[11px] text-gray-500 hidden sm:inline">
+                  • Geser horizontal untuk melihat semua slide
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Switch to E-Book Studio Quick Button */}
                 <button
-                  key={item.id}
-                  onClick={() => {
-                    setCurrentRoute(item.id as any);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded border text-xs ${
-                    currentRoute === item.id
-                      ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300'
-                      : 'border-slate-800 text-slate-400 hover:bg-[#0e1217]'
-                  }`}
+                  type="button"
+                  onClick={() => setActiveTab('ebook')}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1.5"
                 >
-                  <div className="flex items-center space-x-2.5">
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.label}</span>
-                  </div>
-                  {item.badge && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">{item.badge}</span>}
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="hidden sm:inline">Lihat Format E-Book</span>
+                  <span className="sm:hidden">E-Book</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddSlide}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Slide</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Horizontal Slide Scroll Container */}
+            <div
+              ref={previewScrollRef}
+              className="flex-1 flex items-center gap-4 sm:gap-6 overflow-x-auto py-2 sm:py-4 px-1 sm:px-2 no-scrollbar scroll-smooth snap-x snap-mandatory"
+            >
+              {slides.map((slide, index) => (
+                <SlideCard
+                  key={slide.id || index}
+                  slide={slide}
+                  index={index}
+                  totalSlides={slides.length}
+                  theme={activeTheme}
+                  font={activeFont}
+                  aspectRatio={aspectRatio}
+                  authorName={authorName}
+                  authorHandle={authorHandle}
+                  onEdit={() => {
+                    setEditingSlide(slide);
+                    setEditingIndex(index);
+                  }}
+                  onDuplicate={(idx) => handleDuplicateSlide(idx)}
+                  onDelete={(idx) => handleDeleteSlide(idx)}
+                  onMoveLeft={(idx) => handleMoveSlide(idx, 'up')}
+                  onMoveRight={(idx) => handleMoveSlide(idx, 'down')}
+                  onQuickAiPolish={(s, idx) => handleInlineAiPolish(idx)}
+                  isPolishing={polishingIndex === index}
+                />
               ))}
-            </nav>
-          </aside>
+            </div>
+
+            {/* Pagination Navigation Dots */}
+            {slides.length > 1 && (
+              <div className="mt-2 sm:mt-3 flex justify-center items-center gap-1.5 shrink-0">
+                {slides.map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      if (previewScrollRef.current) {
+                        const cardWidth = aspectRatio === '4:5' ? 334 : 374;
+                        previewScrollRef.current.scrollTo({
+                          left: i * cardWidth,
+                          behavior: 'smooth',
+                        });
+                      }
+                      setActiveSlideIndex(i);
+                    }}
+                    className={`h-1.5 sm:h-2 rounded-full transition-all duration-300 ${
+                      activeSlideIndex === i
+                        ? 'w-6 sm:w-8 bg-blue-500 shadow-sm shadow-blue-500/50'
+                        : isDarkUi
+                        ? 'w-1.5 sm:w-2 bg-gray-700 hover:bg-gray-500'
+                        : 'w-1.5 sm:w-2 bg-gray-300 hover:bg-gray-400'
+                    }`}
+                    title={`Lompat ke slide ${i + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </main>
         </div>
       )}
 
-      {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col relative z-10 min-w-0 bg-[#020408]">
-        {/* RADIAL SPACE GLOW & GRID DOT MATRIX */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#0c1421_0%,_#020408_100%)] -z-10" />
-        <div className="absolute inset-0 bg-grid-dots opacity-10 pointer-events-none -z-10" />
-        
-        {/* COMMAND TOP BAR */}
-        <header className="h-16 flex items-center justify-between px-4 md:px-8 bg-[#0a0f18] border-b border-cyan-900/30 shadow-[0_0_20px_rgba(0,0,0,0.8)] shrink-0 z-10">
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-1.5 text-slate-400 hover:text-white rounded border border-slate-800 bg-[#0e1217]"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div>
-              <h2 className="text-xs font-mono font-bold tracking-[0.2em] text-cyan-400 uppercase flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
-                {currentRoute.replace('-', ' ')}
-              </h2>
-              <p className="text-[9px] text-slate-500 font-mono hidden sm:block">
-                SYSTEM MODULE // REALTIME SYNTHESIS & PROCESSING
-              </p>
-            </div>
-          </div>
+      {/* Multi-Provider AI Key Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+        config={apiKeyConfig}
+        onSaveConfig={handleSaveApiKeyConfig}
+        hasEnvKey={true}
+      />
 
-          <div className="flex items-center space-x-6 text-[10px] font-mono">
-            {/* TELEMETRY READOUTS */}
-            <div className="hidden lg:flex items-center space-x-6 border-r border-slate-800 pr-6">
-              <div className="flex flex-col items-end">
-                <span className="text-slate-500 uppercase">TELEMETRY</span>
-                <span className="text-slate-300">042.89 // -112.04</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-slate-500 uppercase">SYS CLOCK</span>
-                <span className="text-cyan-400">{systemTime}</span>
-              </div>
-            </div>
+      {/* Content Writing Scratchpad Modal */}
+      <ContentWritingModal
+        isOpen={isContentWritingModalOpen}
+        onClose={() => setIsContentWritingModalOpen(false)}
+        onApplySlides={handleApplyWrittenContent}
+        authorName={authorHandle || authorName}
+        customApiKey={apiKeyConfig.apiKey}
+      />
 
-            {/* USER CREDITS BADGE */}
-            <button
-              onClick={() => setCurrentRoute('billing')}
-              className="px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/40 rounded text-xs text-cyan-300 font-mono font-bold flex items-center hover:bg-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.2)] transition-all"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400 mr-1.5 fill-amber-400" />
-              <span>{user.credits} CREDITS</span>
-            </button>
+      {/* Slide Editor Modal */}
+      <SlideEditorModal
+        isOpen={Boolean(editingSlide)}
+        slide={editingSlide}
+        index={editingIndex}
+        totalSlides={slides.length}
+        onClose={() => setEditingSlide(null)}
+        onSave={(updated) => {
+          const updatedSlides = [...slides];
+          updatedSlides[editingIndex] = updated;
+          setSlides(updatedSlides);
+        }}
+        onAiPolish={handleModalAiPolish}
+      />
 
-            <div className="w-7 h-7 rounded bg-cyan-500/10 border border-cyan-500/40 text-cyan-400 flex items-center justify-center font-mono font-bold text-xs shadow-inner">
-              C1
-            </div>
-          </div>
-        </header>
+      {/* Google Workspace Modal (Drive & Sheets) */}
+      <GoogleSyncModal
+        isOpen={googleModal.isOpen}
+        mode={googleModal.mode}
+        topic={topic}
+        slides={slides}
+        authorName={authorHandle || authorName}
+        onClose={() => setGoogleModal({ ...googleModal, isOpen: false })}
+        onSelectImportedTopic={(selectedTopic, count) => {
+          setTopic(selectedTopic);
+          if (count) setSlideCount(count);
+          setStatusType('info');
+          setStatusMessage(`Topik dipilih: "${selectedTopic}". Klik Generate untuk memulai.`);
+        }}
+        renderSlideBlobs={renderSlideBlobs}
+      />
 
-        {/* MAIN BODY CONTENT */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-          <div className="max-w-6xl mx-auto pb-12">
-            {currentRoute === 'create-image' && (
-              <ImageStudio onSaveImage={handleSaveImage} />
-            )}
-
-            {currentRoute === 'create-video' && (
-              <VideoStudio
-                userCredits={user.credits}
-                onDeductCredit={handleDeductCredit}
-                onSaveVideo={handleSaveVideo}
-              />
-            )}
-
-            {currentRoute === 'library' && (
-              <AssetLibrary
-                videos={videos}
-                images={images}
-                onDeleteVideo={handleDeleteVideo}
-                onDeleteImage={handleDeleteImage}
-              />
-            )}
-
-            {currentRoute === 'billing' && (
-              <BillingView
-                user={user}
-                onAddCredits={handleAddCredits}
-                onUpgradePlan={handleUpgradePlan}
-              />
-            )}
-          </div>
-        </main>
-      </div>
-
+      {/* Main Export & Download Modal */}
+      <ExportModal
+        isOpen={isExportModalOpen}
+        topic={topic}
+        slides={slides}
+        authorName={authorName}
+        authorHandle={authorHandle}
+        theme={activeTheme}
+        font={activeFont}
+        aspectRatio={aspectRatio}
+        onClose={() => setIsExportModalOpen(false)}
+        onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
+        onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
+        onSwitchToEbook={() => setActiveTab('ebook')}
+        renderSlideBlobs={renderSlideBlobs}
+      />
     </div>
   );
 }
-
