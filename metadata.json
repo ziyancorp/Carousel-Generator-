@@ -1,0 +1,6 @@
+{
+  "name": "UGCGen AI",
+  "description": "AI UGC Video, Image & Carousel Studio with Scriptwriting and Asset Management",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
