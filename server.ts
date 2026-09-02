@@ -1,15 +1,39 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { PDFParse } from 'pdf-parse';
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Helper: Sanitize & parse JSON from AI outputs
+function sanitizeAndParseJSON(rawStr: string): any {
+  if (!rawStr) return {};
+  let clean = rawStr.trim();
+  clean = clean.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return JSON.parse(clean);
+  } catch (e1) {
+    try {
+      const sanitized = clean.replace(/[\u0000-\u001F\u007F-\u009F]/g, (match) => {
+        if (match === '\n') return '\\n';
+        if (match === '\r') return '\\r';
+        if (match === '\t') return '\\t';
+        return '';
+      });
+      return JSON.parse(sanitized);
+    } catch {
+      throw e1;
+    }
+  }
+}
 
 // Helper: Universal AI caller (Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter, Custom)
 interface UniversalAiParams {
@@ -32,62 +56,123 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
     userPrompt,
   } = params;
 
+  // Helper for Google Gemini execution
+  const runGemini = async (overrideModel?: string) => {
+    // Collect candidate keys in priority order: user custom key (if provided) -> process.env.GEMINI_API_KEY
+    const candidateKeys: string[] = [];
+    if (apiKey && apiKey.trim() && apiKey.trim().length > 10) {
+      candidateKeys.push(apiKey.trim());
+    }
+    if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() && !candidateKeys.includes(process.env.GEMINI_API_KEY.trim())) {
+      candidateKeys.push(process.env.GEMINI_API_KEY.trim());
+    }
+
+    if (candidateKeys.length === 0) {
+      throw new Error('Gemini API Key is required. Please provide a valid API key in settings.');
+    }
+
+    const candidateModels = overrideModel ? [overrideModel] : [model || 'gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-2.0-flash'];
+    let lastError: any = null;
+
+    for (const keyToUse of candidateKeys) {
+      for (const m of candidateModels) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey: keyToUse,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              },
+            },
+          });
+          const response = await ai.models.generateContent({
+            model: m,
+            contents: userPrompt,
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: 'application/json',
+            },
+          });
+          if (response && response.text) {
+            return response.text;
+          }
+        } catch (err: any) {
+          lastError = err;
+          // If this key is specifically invalid/disabled, stop trying this key and switch to the next key
+          const errMsg = err?.message || '';
+          if (
+            errMsg.includes('API key not valid') ||
+            errMsg.includes('API_KEY_INVALID') ||
+            errMsg.includes('Invalid or disabled') ||
+            errMsg.includes('400')
+          ) {
+            break;
+          }
+        }
+      }
+    }
+
+    throw new Error(`Semua model AI sedang sibuk atau API key tidak valid. Detail: ${lastError?.message || 'Unavailable'}`);
+  };
+
   // 1. Google Gemini (Default)
   if (provider === 'gemini' || (!provider && (apiKey || process.env.GEMINI_API_KEY))) {
-    const keyToUse = apiKey || process.env.GEMINI_API_KEY;
-    if (!keyToUse) {
-      throw new Error('Gemini API Key is required.');
-    }
-    const ai = new GoogleGenAI({ apiKey: keyToUse });
-    const modelToUse = model || 'gemini-2.5-flash';
-    const response = await ai.models.generateContent({
-      model: modelToUse,
-      contents: userPrompt,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: 'application/json',
-      },
-    });
-    return response.text || '{}';
+    return await runGemini();
   }
 
   // 2. Anthropic Claude
   if (provider === 'anthropic') {
     const keyToUse = apiKey;
-    if (!keyToUse) throw new Error('Anthropic API Key is required.');
-    const modelToUse = model || 'claude-3-7-sonnet-20250219';
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': keyToUse,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: modelToUse,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`Anthropic Error: ${errBody}`);
+    if (!keyToUse) {
+      if (process.env.GEMINI_API_KEY) return await runGemini();
+      throw new Error('Anthropic API Key is required.');
     }
+    const modelToUse = model || 'claude-3-7-sonnet-20250219';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': keyToUse,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: modelToUse,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      });
 
-    const data: any = await res.json();
-    const contentBlock = data.content?.[0];
-    return contentBlock?.text || '{}';
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.warn(`Anthropic provider error: ${errBody}. Falling back to Gemini...`);
+        if (process.env.GEMINI_API_KEY) return await runGemini();
+        throw new Error(`Anthropic Error: ${errBody}`);
+      }
+
+      const data: any = await res.json();
+      const contentBlock = data.content?.[0];
+      return contentBlock?.text || '{}';
+    } catch (anthropicErr: any) {
+      if (process.env.GEMINI_API_KEY) {
+        console.warn(`Anthropic failed (${anthropicErr.message}), falling back to Gemini`);
+        return await runGemini();
+      }
+      throw anthropicErr;
+    }
   }
 
-  // 3. OpenAI / DeepSeek / Groq / OpenRouter / Custom OpenAI-compatible
+  // 3. OpenAI / DeepSeek / Groq / OpenRouter / xKiro / Custom OpenAI-compatible
   let targetUrl = baseUrl;
   let defaultModelName = 'gpt-4o';
 
   if (provider === 'deepseek') {
     targetUrl = targetUrl || 'https://api.deepseek.com/v1';
     defaultModelName = 'deepseek-chat';
+  } else if (provider === 'xkiro') {
+    targetUrl = targetUrl || 'https://api.xkiro.com/v1';
+    defaultModelName = 'qwen/qwen3.8-max:free';
   } else if (provider === 'groq') {
     targetUrl = targetUrl || 'https://api.groq.com/openai/v1';
     defaultModelName = 'llama-3.3-70b-versatile';
@@ -106,32 +191,509 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
   const endpoint = targetUrl.replace(/\/+$/, '') + '/chat/completions';
   const modelToUse = model || defaultModelName;
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey || 'no-key'}`,
-    },
-    body: JSON.stringify({
-      model: modelToUse,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-    }),
-  });
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey || 'no-key'}`,
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
+      }),
+    });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`AI Provider (${provider}) Error: ${errText}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`AI Provider (${provider}) Error (${res.status}): ${errText}. Seamlessly falling back to Google Gemini...`);
+      if (process.env.GEMINI_API_KEY) {
+        return await runGemini();
+      }
+      throw new Error(`AI Provider (${provider}) Error: ${errText}`);
+    }
+
+    const jsonResult: any = await res.json();
+    const rawText = jsonResult.choices?.[0]?.message?.content || '{}';
+    return rawText;
+  } catch (providerErr: any) {
+    if (process.env.GEMINI_API_KEY) {
+      console.warn(`Provider ${provider} failed (${providerErr.message}). Seamlessly running with Gemini fallback...`);
+      return await runGemini();
+    }
+    throw providerErr;
+  }
+}
+
+// ----------------------------------------------------
+// MULTI-SOURCE INGESTION HELPERS
+// ----------------------------------------------------
+
+import { YoutubeTranscript } from 'youtube-transcript';
+
+// ----------------------------------------------------
+// YouTube Transcript & Subtitle Extraction Engine
+// ----------------------------------------------------
+
+function extractYouTubeVideoId(input: string): string | null {
+  const cleanInput = input.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(cleanInput)) {
+    return cleanInput;
+  }
+  const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = cleanInput.match(regExp);
+  return match ? match[1] : null;
+}
+
+function decodeXmlEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+}
+
+// Fetch authentic metadata (Title, Channel Name, Description) directly from YouTube oEmbed / watch page
+async function fetchYouTubeVideoInfo(videoId: string): Promise<{ title: string; channelName: string; description?: string }> {
+  try {
+    const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+    if (oembedRes.ok) {
+      const oembedData: any = await oembedRes.json();
+      return {
+        title: oembedData.title || `YouTube Video (${videoId})`,
+        channelName: oembedData.author_name || 'YouTube Creator',
+      };
+    }
+  } catch (err) {
+    // continue to fallback
   }
 
-  const jsonResult: any = await res.json();
-  const rawText = jsonResult.choices?.[0]?.message?.content || '{}';
-  return rawText;
+  return {
+    title: `YouTube Video (${videoId})`,
+    channelName: 'YouTube Creator',
+  };
 }
+
+async function fetchYouTubeTranscriptDirect(videoId: string): Promise<{ title: string; text: string; channelName?: string }> {
+  const videoInfo = await fetchYouTubeVideoInfo(videoId);
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const pageRes = await fetch(watchUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+  });
+
+  if (!pageRes.ok) {
+    throw new Error(`Gagal membuka halaman video YouTube (HTTP ${pageRes.status})`);
+  }
+
+  const html = await pageRes.text();
+
+  // Extract Title from HTML if better
+  let title = videoInfo.title;
+  const titleMatch = html.match(/<title>(.*?) - YouTube<\/title>/i) || html.match(/<title>(.*?)<\/title>/i);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].replace(' - YouTube', '').trim();
+  }
+
+  // Extract Channel Name
+  let channelName = videoInfo.channelName;
+  const channelMatch = html.match(/"ownerChannelName":"([^"]+)"/) || html.match(/"author":"([^"]+)"/);
+  if (channelMatch && channelMatch[1]) {
+    channelName = channelMatch[1];
+  }
+
+  // Find caption tracks inside ytInitialPlayerResponse or playerCaptionsTracklistRenderer
+  const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+  if (!captionMatch || !captionMatch[1]) {
+    throw new Error('Video ini tidak memiliki caption track langsung di HTML.');
+  }
+
+  let captionTracks: any[] = [];
+  try {
+    captionTracks = JSON.parse(captionMatch[1]);
+  } catch {
+    throw new Error('Gagal mem-parsing track subtitle.');
+  }
+
+  if (!captionTracks || captionTracks.length === 0) {
+    throw new Error('Trek subtitle kosong.');
+  }
+
+  // Prefer Indonesian ('id', 'in'), then English ('en'), then first available
+  const selectedTrack =
+    captionTracks.find((t: any) => t.languageCode === 'id' || t.languageCode === 'in' || t.vssId?.includes('.id')) ||
+    captionTracks.find((t: any) => t.languageCode === 'en' || t.languageCode?.startsWith('en')) ||
+    captionTracks[0];
+
+  const transcriptUrl = selectedTrack.baseUrl;
+  if (!transcriptUrl) {
+    throw new Error('URL transkrip tidak ditemukan pada caption track.');
+  }
+
+  // Fetch transcript XML / JSON
+  const transcriptRes = await fetch(transcriptUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  if (!transcriptRes.ok) {
+    throw new Error(`Gagal mengunduh teks transkrip (${transcriptRes.status})`);
+  }
+
+  const transcriptXml = await transcriptRes.text();
+  const textMatches = Array.from(transcriptXml.matchAll(/<text[^>]*>(.*?)<\/text>/gi));
+  if (textMatches.length === 0) {
+    throw new Error('Data transkrip XML tidak berisi elemen teks.');
+  }
+
+  const cleanedLines: string[] = [];
+  for (const match of textMatches) {
+    const rawText = match[1] || '';
+    const decoded = decodeXmlEntities(rawText).trim();
+    if (decoded && !decoded.startsWith('[') && !decoded.endsWith(']')) {
+      cleanedLines.push(decoded);
+    }
+  }
+
+  const fullText = cleanedLines.join(' ');
+  return {
+    title,
+    text: fullText,
+    channelName,
+  };
+}
+
+async function fetchYouTubeTranscriptViaService(videoId: string): Promise<{ title: string; text: string; channelName?: string }> {
+  const videoInfo = await fetchYouTubeVideoInfo(videoId);
+
+  // Strategy 1: Dedicated youtube-transcript library
+  try {
+    const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId, {
+      lang: 'id',
+    }).catch(async () => {
+      return await YoutubeTranscript.fetchTranscript(videoId);
+    });
+
+    if (transcriptItems && transcriptItems.length > 0) {
+      const fullText = transcriptItems
+        .map((item) => decodeXmlEntities(item.text || '').trim())
+        .filter((t) => t && !t.startsWith('[') && !t.endsWith(']'))
+        .join(' ');
+
+      if (fullText.length > 30) {
+        return {
+          title: videoInfo.title,
+          text: fullText,
+          channelName: videoInfo.channelName,
+        };
+      }
+    }
+  } catch (libErr: any) {
+    console.warn(`youtube-transcript package attempt failed: ${libErr.message}`);
+  }
+
+  // Strategy 2: Direct YouTube internal transcript extraction
+  try {
+    const directRes = await fetchYouTubeTranscriptDirect(videoId);
+    if (directRes && directRes.text && directRes.text.length > 30) {
+      return directRes;
+    }
+  } catch (directErr: any) {
+    console.warn(`Direct YouTube transcript attempt: ${directErr.message}`);
+  }
+
+  // Strategy 3: youtube-transcript.ai MCP / API endpoint
+  try {
+    const serviceRes = await fetch(`https://youtube-transcript.ai/api/transcript?v=${videoId}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept: 'application/json, text/plain, */*',
+      },
+    });
+
+    if (serviceRes.ok) {
+      const data: any = await serviceRes.json();
+      let text = '';
+      if (typeof data.transcript === 'string') {
+        text = data.transcript;
+      } else if (Array.isArray(data.transcript)) {
+        text = data.transcript.map((item: any) => item.text || item).join(' ');
+      } else if (typeof data.text === 'string') {
+        text = data.text;
+      }
+
+      if (text && text.trim().length > 20) {
+        return {
+          title: data.title || videoInfo.title,
+          text: text.trim(),
+          channelName: data.channelName || data.channel || videoInfo.channelName,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`youtube-transcript.ai attempt: ${err.message}`);
+  }
+
+  // Strategy 4: Public Subtitle Mirror
+  try {
+    const mirrorRes = await fetch(`https://subtitles-for-youtube.com/api/transcript?videoId=${videoId}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    if (mirrorRes.ok) {
+      const mirrorData: any = await mirrorRes.json();
+      if (mirrorData && mirrorData.text && mirrorData.text.length > 30) {
+        return {
+          title: mirrorData.title || videoInfo.title,
+          text: mirrorData.text.trim(),
+          channelName: mirrorData.channel || videoInfo.channelName,
+        };
+      }
+    }
+  } catch (mirrorErr: any) {
+    // Ignore and proceed
+  }
+
+  throw new Error('Video YouTube ini tidak menyediakan subtitle atau closed-caption (CC) publik yang dapat diekstrak.');
+}
+
+// Ingest YouTube Transcript endpoint
+app.post('/api/ingest/youtube', async (req, res) => {
+  try {
+    const { url, apiKey, provider, model } = req.body;
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ error: 'YouTube URL or Video ID is required' });
+      return;
+    }
+
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId) {
+      res.status(400).json({ error: 'Format link YouTube tidak valid. Silakan masukkan link yang valid (contoh: https://www.youtube.com/watch?v=... atau https://youtu.be/...)' });
+      return;
+    }
+
+    let transcriptResult: { title: string; text: string; channelName?: string; isExtractedFromCaptions?: boolean };
+
+    try {
+      const extracted = await fetchYouTubeTranscriptViaService(videoId);
+      transcriptResult = {
+        ...extracted,
+        isExtractedFromCaptions: true,
+      };
+    } catch (fetchErr: any) {
+      // Video doesn't have closed captions; retrieve real metadata to prevent blind hallucination
+      const videoInfo = await fetchYouTubeVideoInfo(videoId);
+      const prompt = `Informasi Video YouTube yang dianalisis:
+- Judul Video: "${videoInfo.title}"
+- Nama Channel / Pembuat: "${videoInfo.channelName}"
+- Video ID: "${videoId}"
+- URL: "https://www.youtube.com/watch?v=${videoId}"
+
+Tugas:
+Susun ringkasan materi, kerangka pembahasan utama, dan panduan edukatif terstruktur berdasarkan topik dan judul video "${videoInfo.title}" oleh ${videoInfo.channelName} dalam Bahasa Indonesia.
+Rangkum konsep kunci, langkah-langkah praktis, dan poin pembelajaran utama yang relevan dengan topik ini secara kredibel.
+
+Kembalikan format JSON:
+{
+  "title": "${videoInfo.title}",
+  "channelName": "${videoInfo.channelName}",
+  "text": "Ringkasan konsep mendalam dan materi edukatif video...",
+  "keyTakeaways": ["poin 1", "poin 2", "poin 3"]
+}`;
+
+      let aiText = '{}';
+      try {
+        aiText = await callUniversalAi({
+          provider,
+          apiKey,
+          model,
+          systemPrompt: 'Anda adalah asisten kurasi konten profesional. Balas selalu dalam format JSON.',
+          userPrompt: prompt,
+          responseMimeType: 'application/json',
+        });
+      } catch (aiErr: any) {
+        // Ultimate resilient fallback if all AI fails
+        aiText = JSON.stringify({
+          title: videoInfo.title,
+          channelName: videoInfo.channelName,
+          text: `Materi video: "${videoInfo.title}" oleh ${videoInfo.channelName}.\n\nVideo ini belum menyediakan subtitle publik otomatis. Anda dapat langsung mengedit catatan atau menambahkan poin-poin materi video di kolom di bawah ini.`,
+          keyTakeaways: [`Topik: ${videoInfo.title}`],
+        });
+      }
+
+      let parsed: any = {};
+      try {
+        parsed = sanitizeAndParseJSON(aiText);
+      } catch {
+        parsed = {
+          title: videoInfo.title,
+          channelName: videoInfo.channelName,
+          text: `Materi video: "${videoInfo.title}" oleh ${videoInfo.channelName}.\n\nSilakan lengkapi atau sesuaikan naskah materi video ini.`,
+          keyTakeaways: [],
+        };
+      }
+
+      transcriptResult = {
+        title: videoInfo.title || parsed.title || `YouTube Video (${videoId})`,
+        text: parsed.text || `Materi video: ${videoInfo.title}`,
+        channelName: videoInfo.channelName || parsed.channelName || 'YouTube Creator',
+        isExtractedFromCaptions: false,
+      };
+    }
+
+    const words = transcriptResult.text.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+
+    res.json({
+      success: true,
+      videoId,
+      title: transcriptResult.title,
+      channelName: transcriptResult.channelName,
+      text: transcriptResult.text,
+      isExtractedFromCaptions: transcriptResult.isExtractedFromCaptions,
+      wordCount,
+      sourceUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    });
+  } catch (error: any) {
+    console.error('Error ingesting YouTube:', error);
+    res.status(500).json({ error: error.message || 'Failed to extract YouTube transcript' });
+  }
+});
+
+// Ingest Web Article endpoint
+app.post('/api/ingest/web', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ error: 'Valid Website or Article URL is required' });
+      return;
+    }
+
+    const cleanUrl = url.trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      res.status(400).json({ error: 'URL must start with http:// or https://' });
+      return;
+    }
+
+    const webRes = await fetch(cleanUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+
+    if (!webRes.ok) {
+      throw new Error(`Failed to fetch website (${webRes.status} ${webRes.statusText})`);
+    }
+
+    const html = await webRes.text();
+
+    // Extract Title
+    let title = 'Web Article';
+    const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/i);
+    const docTitle = html.match(/<title>(.*?)<\/title>/i);
+    if (ogTitle && ogTitle[1]) {
+      title = decodeXmlEntities(ogTitle[1]);
+    } else if (docTitle && docTitle[1]) {
+      title = decodeXmlEntities(docTitle[1]);
+    }
+
+    // Strip scripts, styles, iframes, SVGs, nav, headers, footers
+    const cleaned = html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, '')
+      .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+      .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '');
+
+    // Extract paragraph and heading texts
+    const textMatches = Array.from(cleaned.matchAll(/<(?:p|h1|h2|h3|h4|li|blockquote)[^>]*>(.*?)<\/(?:p|h1|h2|h3|h4|li|blockquote)>/gi));
+    const extractedParagraphs: string[] = [];
+
+    for (const match of textMatches) {
+      const stripped = match[1].replace(/<[^>]+>/g, '').trim();
+      const decoded = decodeXmlEntities(stripped);
+      if (decoded.length > 20) {
+        extractedParagraphs.push(decoded);
+      }
+    }
+
+    let fullText = extractedParagraphs.join('\n\n');
+    if (!fullText || fullText.length < 100) {
+      fullText = cleaned
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    const words = fullText.split(/\s+/).filter(Boolean);
+
+    res.json({
+      success: true,
+      title,
+      sourceUrl: cleanUrl,
+      text: fullText.slice(0, 40000),
+      wordCount: words.length,
+    });
+  } catch (error: any) {
+    console.error('Error ingesting Web URL:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch and parse website content' });
+  }
+});
+
+// Ingest PDF / Document endpoint
+app.post('/api/ingest/pdf', async (req, res) => {
+  try {
+    const { base64Data, fileName } = req.body;
+    if (!base64Data || typeof base64Data !== 'string') {
+      res.status(400).json({ error: 'Base64 file data is required' });
+      return;
+    }
+
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+
+    const parser = new PDFParse({ data: buffer });
+    const textResult = await parser.getText();
+    const infoResult = await parser.getInfo().catch(() => null);
+    await parser.destroy().catch(() => {});
+
+    const rawText = (textResult.text || '').trim();
+    const words = rawText.split(/\s+/).filter(Boolean);
+
+    let docTitle = (fileName || 'Uploaded PDF Document').replace(/\.pdf$/i, '');
+    if (infoResult && (infoResult as any).info?.Title) {
+      docTitle = (infoResult as any).info.Title;
+    }
+
+    res.json({
+      success: true,
+      title: docTitle,
+      fileName: fileName || 'document.pdf',
+      text: rawText,
+      pageCount: textResult.pages?.length || 1,
+      wordCount: words.length,
+    });
+  } catch (error: any) {
+    console.error('Error parsing PDF:', error);
+    res.status(500).json({ error: error.message || 'Failed to parse PDF document' });
+  }
+});
 
 // API: Health & Config check
 app.get('/api/health', (req, res) => {
@@ -155,7 +717,7 @@ app.post('/api/validate-key', async (req, res) => {
       }
       const testAi = new GoogleGenAI({ apiKey: keyToTest });
       const response = await testAi.models.generateContent({
-        model: model || 'gemini-2.5-flash',
+        model: model || 'gemini-3.7-flash',
         contents: 'Respond with "OK"',
       });
       if (response.text) {
@@ -200,6 +762,9 @@ app.post('/api/validate-key', async (req, res) => {
     if (provider === 'deepseek') {
       targetUrl = targetUrl || 'https://api.deepseek.com/v1';
       defaultTestModel = 'deepseek-chat';
+    } else if (provider === 'xkiro') {
+      targetUrl = targetUrl || 'https://api.xkiro.com/v1';
+      defaultTestModel = 'qwen/qwen3.8-max:free';
     } else if (provider === 'groq') {
       targetUrl = targetUrl || 'https://api.groq.com/openai/v1';
       defaultTestModel = 'llama-3.1-8b-instant';
@@ -355,6 +920,7 @@ app.post('/api/generate-carousel', async (req, res) => {
   try {
     const {
       topic,
+      sourceMaterial,
       slideCount = 5,
       tone = 'santai dan engaging',
       language = 'Indonesian',
@@ -378,9 +944,10 @@ app.post('/api/generate-carousel', async (req, res) => {
 You specialize in high-retention, high-value, visual slide carousels.
 
 Rules:
-- Slide 1 MUST be a high-conversion "Hook" slide with an irresistible, punchy title (max 7 words), a highlightWord, an engaging subheadline/body, and a clear prompt to swipe.
-- Middle slides (${count - 2} slides) must deliver crisp, highly actionable, step-by-step value or bullet points. Include stepBadge (e.g. "STEP 01 · SETUP"), highlightWord, codeSnippet (if technical), and tip.
-- The final slide (Slide ${count}) MUST be a high-converting "CTA" with stepBadge "YOU ARE ALL SET", ctaButtonText (e.g. "Full setup inside →" or "Save this guide 🔖"), and footer_hint.
+- Slide 1 MUST be a high-conversion "Hook" slide with an irresistible, punchy title (4-8 words), a highlightWord, an engaging complete subheadline/body (15-25 words), and a clear prompt to swipe.
+- Middle slides (${count - 2} slides) must deliver crisp, highly actionable, step-by-step value or bullet points. Include stepBadge (e.g. "STEP 01 · SETUP"), highlightWord, complete bullet points (2-3 concise, complete sentences), codeSnippet (if technical), and tip.
+- The final slide (Slide ${count}) MUST be a high-converting "CTA" with stepBadge "YOU ARE ALL SET", a clear summary, ctaButtonText (e.g. "Simpan Panduan Ini 🔖" or "Full Guide Link di Bio →"), and footer_hint.
+- ALL sentences, bullet points, and tips MUST be complete and coherent thoughts. Never truncate or leave sentences unfinished.
 - Language requested: ${language}. Tone: ${tone}. Target audience: ${targetAudience}.
 - Return strictly valid JSON object with the schema:
 {
@@ -404,10 +971,11 @@ Rules:
   ]
 }`;
 
-    const userPrompt = `Topic: "${topic}"
-Total Slides needed: Exactly ${count} slides.
-Creator Name: "${authorName}".
-Return JSON now.`;
+    let userPrompt = `Topic: "${topic}"\nTotal Slides needed: Exactly ${count} slides.\nCreator Name: "${authorName}".\n`;
+    if (sourceMaterial) {
+      userPrompt += `\nStudy and distill this Source Material deeply:\n${sourceMaterial.slice(0, 20000)}\n`;
+    }
+    userPrompt += '\nReturn strictly JSON now.';
 
     try {
       const rawJson = await callUniversalAi({
@@ -460,12 +1028,15 @@ Return JSON now.`;
   }
 });
 
-// API: Generate complete multi-module E-Book with AI
+// API: Generate complete multi-module E-Book with AI from Ingested Material or Topic
 app.post('/api/generate-ebook', async (req, res) => {
   try {
     const {
-      topic = 'Rahasia Ngonten Tanpa Wajah',
-      authorName = 'Creator Pro',
+      topic = 'Panduan Konten AI',
+      sourceText,
+      sourceType,
+      sourceTitle,
+      authorName = 'Arijal Meutuwah',
       moduleCount = 5,
       language = 'Indonesian',
       provider = 'gemini',
@@ -474,57 +1045,64 @@ app.post('/api/generate-ebook', async (req, res) => {
       baseUrl,
     } = req.body;
 
-    const systemPrompt = `You are a bestselling digital product author and ebook creator.
-Your goal is to produce a structured, high-value, multi-module digital E-Book ready for publication on Lynk.id, Shopee, and Gumroad.
+    const count = Math.min(Math.max(parseInt(moduleCount, 10) || 5, 3), 8);
 
-Return strictly valid JSON with this exact schema:
+    const systemPrompt = `You are a bestselling digital product author, educator, and master curriculum architect.
+Your task is to ingest and synthesize the provided source material (which may come from a YouTube transcript, web article, uploaded PDF document, or user notes) and build a comprehensive, highly valuable, multi-module digital E-Book ready for reading and monetization (Lynk.id, Shopee, Gumroad).
+
+Rules:
+1. Deeply study the source material and structure the E-Book logically into exactly ${count} progressive modules (e.g. Modul 1: Fondasi/Mindset, Modul 2-4: Core Methods & Step-by-step Framework, Modul 5: Action Plan/Monetisasi).
+2. Each module MUST include:
+   - "title" & "description"
+   - "introCard" with icon (emoji), title, subtitle, body, and checklist of 3-4 key takeaways.
+   - "steps": 3 concrete actionable steps.
+   - "prompts": 1-2 copyable prompt templates or master code snippets relevant to that module.
+   - "callouts": 1 actionable pro tip or warning.
+3. Tone: Educational, authoritative, empowering, highly practical.
+4. Return strictly valid JSON with this exact schema:
 {
   "ebook": {
-    "id": "ebook-ai-generated",
-    "title": "UPPERCASE EBOOK TITLE",
+    "id": "ebook-${Date.now()}",
+    "title": "UPPERCASE TITLE",
     "tag": "PANDUAN RESMI ${authorName.toUpperCase()}",
-    "subtitle": "Clear, compelling subtitle explaining what readers will master.",
-    "difficulty": "Pemula (No-Code)",
-    "platform": "AI Tools & Social Media",
-    "monetization": "Lynk.id / Shopee / Digital Product",
+    "subtitle": "Compelling subtitle explaining what readers will master.",
+    "difficulty": "Pemula s/d Menengah",
+    "platform": "Multi-Platform & AI Ecosystem",
+    "monetization": "Lynk.id / Shopee / Digital Asset",
     "format": "Responsive & Print PDF",
-    "edition": "Edisi 2026 • Siap Jual",
+    "edition": "Edisi 2026 • Master Guide",
     "author": "${authorName}",
     "modules": [
       {
         "id": "modul-1",
         "moduleNumber": 1,
         "badge": "Modul 1",
-        "title": "Mindset & Fondasi",
+        "title": "Module Title",
         "description": "Short module summary",
         "introCard": {
-          "icon": "🎭",
+          "icon": "📘",
           "title": "Card Title",
           "subtitle": "Card Subtitle",
           "body": "Introductory problem & solution text",
-          "checklist": [
-            "Estetika Visual: Tajam dan sinematik",
-            "Relevansi Konten: Jelas dan bermanfaat",
-            "Konsistensi: Jadwal unggah teratur"
-          ]
+          "checklist": ["Takeaway 1", "Takeaway 2", "Takeaway 3"]
         },
         "steps": [
-          { "number": 1, "title": "Langkah 1", "text": "Penjelasan praktis langkah 1" },
-          { "number": 2, "title": "Langkah 2", "text": "Penjelasan praktis langkah 2" },
-          { "number": 3, "title": "Langkah 3", "text": "Penjelasan praktis langkah 3" }
+          { "number": 1, "title": "Langkah 1", "text": "Explanation" },
+          { "number": 2, "title": "Langkah 2", "text": "Explanation" },
+          { "number": 3, "title": "Langkah 3", "text": "Explanation" }
         ],
         "prompts": [
           {
-            "tag": "Master Prompt: Kategori (Vibe)",
-            "content": "Full detailed copyable prompt with lens, camera, lighting, skin texture, 8k resolution details..."
+            "tag": "Master Prompt: Kategori (Format)",
+            "content": "Full detailed prompt or snippet..."
           }
         ],
         "callouts": [
           {
             "type": "info",
             "icon": "💡",
-            "title": "Rahasia Alur Kerja Tercepat:",
-            "body": "Tips praktis untuk menghemat waktu."
+            "title": "Pro Tip:",
+            "body": "Actionable advice."
           }
         ]
       }
@@ -532,8 +1110,13 @@ Return strictly valid JSON with this exact schema:
   }
 }`;
 
-    const userPrompt = `Create a comprehensive ${moduleCount}-module E-Book about: "${topic}".
-Include realistic steps, copyable master prompts, checklists, and actionable insights.`;
+    let userPrompt = `Topic / Goal: "${topic}"\nAuthor: "${authorName}"\nModules needed: Exactly ${count} modules.\nLanguage: ${language}\n`;
+
+    if (sourceText && typeof sourceText === 'string' && sourceText.trim().length > 0) {
+      userPrompt += `\n================== SOURCE MATERIAL (${sourceType || 'Ingested Content'}): "${sourceTitle || topic}" ==================\n${sourceText.slice(0, 30000)}\n=======================================================\nSynthesize all key lessons from this material into the E-Book modules.\n`;
+    }
+
+    userPrompt += '\nReturn strictly JSON now.';
 
     try {
       const raw = await callUniversalAi({
@@ -549,10 +1132,109 @@ Include realistic steps, copyable master prompts, checklists, and actionable ins
       if (parsed.ebook) {
         res.json({ ebook: parsed.ebook });
       } else {
-        res.status(500).json({ error: 'Failed to format ebook JSON' });
+        res.status(500).json({ error: 'Failed to format ebook JSON structure' });
       }
     } catch (err: any) {
       console.error('Error generating ebook:', err);
+      res.status(500).json({ error: err.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Distill an E-Book into a Carousel Slide Deck
+app.post('/api/distill-ebook-to-carousel', async (req, res) => {
+  try {
+    const {
+      ebook,
+      slideCount = 6,
+      tone = 'santai, padat dan bernilai tinggi',
+      language = 'Indonesian',
+      authorName = '@creator',
+      provider = 'gemini',
+      apiKey,
+      model,
+      baseUrl,
+    } = req.body;
+
+    if (!ebook || !ebook.modules || ebook.modules.length === 0) {
+      res.status(400).json({ error: 'E-Book data with modules is required' });
+      return;
+    }
+
+    const count = Math.min(Math.max(parseInt(slideCount, 10) || 6, 4), 10);
+
+    const systemPrompt = `You are a master social media distiller and microblog copywriter.
+Your job is to read an entire comprehensive E-Book and distill its gold-standard insights into a high-retention ${count}-slide Carousel Deck.
+
+Structure of the ${count} slides:
+- Slide 1: "hook" slide with a viral headline, highlightWord, subtitle, and swipe hint.
+- Slides 2 to ${count - 1}: One distilled key module / core lesson per slide. Include stepBadge (e.g. "MODUL 01 · FONDASI"), highlightWord, bullet points, and codeSnippet / prompt if applicable.
+- Slide ${count}: "cta" slide with stepBadge "YOU ARE ALL SET", summary bullet points, and ctaButtonText "Save this guide 🔖".
+
+Return strictly JSON with schema:
+{
+  "slides": [
+    {
+      "slide_number": 1,
+      "type": "hook",
+      "badge": "🔥 E-BOOK DISTILLED",
+      "stepBadge": "OVERVIEW · 01",
+      "title": "Title here",
+      "highlightWord": "Key Word",
+      "body": "Hook copy",
+      "points": ["point 1", "point 2"],
+      "codeSnippet": "code or command",
+      "terminalTitle": "bash",
+      "tip": "tip",
+      "ctaButtonText": "Full setup inside →",
+      "footer_hint": "Geser 👉"
+    }
+  ]
+}`;
+
+    const ebookSummary = `E-Book Title: ${ebook.title}
+Subtitle: ${ebook.subtitle}
+Author: ${ebook.author}
+Modules:
+${ebook.modules.map((m: any, idx: number) => `Module ${idx + 1}: ${m.title}
+Summary: ${m.description}
+Key Points: ${m.introCard?.checklist?.join(', ') || m.steps?.map((s: any) => s.title).join(', ')}`).join('\n\n')}`;
+
+    const userPrompt = `Distill this E-Book into exactly ${count} slides:\n${ebookSummary}\nCreator Name: "${authorName}". Language: "${language}". Tone: "${tone}".`;
+
+    try {
+      const raw = await callUniversalAi({
+        provider,
+        apiKey,
+        model,
+        baseUrl,
+        systemPrompt,
+        userPrompt,
+      });
+
+      const parsed = JSON.parse(raw);
+      const formatted = (parsed.slides || []).map((s: any, idx: number) => ({
+        id: `slide-distill-${Date.now()}-${idx}`,
+        slide_number: idx + 1,
+        type: s.type || (idx === 0 ? 'hook' : idx === parsed.slides.length - 1 ? 'cta' : 'content'),
+        badge: s.badge || (idx === 0 ? '🔥 E-Book Distilled' : idx === parsed.slides.length - 1 ? '📌 Summary' : `Modul 0${idx}`),
+        stepBadge: s.stepBadge || undefined,
+        title: s.title || `Slide ${idx + 1}`,
+        highlightWord: s.highlightWord || undefined,
+        body: s.body || '',
+        points: Array.isArray(s.points) ? s.points : [],
+        codeSnippet: s.codeSnippet || undefined,
+        terminalTitle: s.terminalTitle || undefined,
+        tip: s.tip || undefined,
+        ctaButtonText: s.ctaButtonText || undefined,
+        footer_hint: s.footer_hint || (idx === parsed.slides.length - 1 ? 'Save & Share 📌' : 'Swipe 👉'),
+      }));
+
+      res.json({ slides: formatted });
+    } catch (err: any) {
+      console.error('Error distilling ebook:', err);
       res.status(500).json({ error: err.message });
     }
   } catch (err: any) {

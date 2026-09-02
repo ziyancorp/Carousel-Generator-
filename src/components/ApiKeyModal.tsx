@@ -100,6 +100,22 @@ const PROVIDERS: {
     description: 'Satu API Key untuk mengakses ratusan model AI dari berbagai provider dunia.',
   },
   {
+    id: 'xkiro',
+    name: 'XKiro API',
+    badge: '1M Token • Qwen Free',
+    defaultModel: 'qwen/qwen3.8-max:free',
+    models: [
+      'qwen/qwen3.8-max:free',
+      'qwen/qwen-2.5-72b-instruct',
+      'deepseek/deepseek-r1:free',
+      'meta-llama/llama-3.3-70b-instruct'
+    ],
+    placeholder: 'sk-xt-...',
+    getKeyUrl: 'https://api.xkiro.com',
+    defaultBaseUrl: 'https://api.xkiro.com/v1',
+    description: 'Akses API OpenAI-compatible berkecepatan tinggi dengan context window 1 Juta Token & model Qwen Max gratis permanen.',
+  },
+  {
     id: 'custom',
     name: 'Custom / Local API',
     badge: 'Ollama / vLLM / Proxy',
@@ -138,9 +154,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     const def = PROVIDERS.find((p) => p.id === providerId);
     if (def) {
       setSelectedModel(def.defaultModel);
-      if (def.defaultBaseUrl && !customBaseUrl) {
-        setCustomBaseUrl(def.defaultBaseUrl);
-      }
+      setCustomBaseUrl(def.defaultBaseUrl || '');
     }
     setTestResult(null);
   };

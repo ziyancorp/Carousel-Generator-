@@ -12,7 +12,8 @@ import {
   FileText,
   Sparkles,
   BookOpen,
-  Printer
+  Printer,
+  Presentation
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import JSZip from 'jszip';
@@ -31,6 +32,7 @@ interface ExportModalProps {
   font?: FontOption;
   aspectRatio: AspectRatio;
   onClose: () => void;
+  onOpenSlidesExport: () => void;
   onOpenDriveExport: () => void;
   onOpenSheetsSync: () => void;
   onSwitchToEbook?: () => void;
@@ -47,6 +49,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   font: userFont,
   aspectRatio,
   onClose,
+  onOpenSlidesExport,
   onOpenDriveExport,
   onOpenSheetsSync,
   onSwitchToEbook,
@@ -324,6 +327,30 @@ Dibuat dengan CarouselX AI oleh ${authorHandle || authorName}
 
           {/* Export Action Options */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Direct Export to Google Slides Deck */}
+            <button
+              type="button"
+              disabled={isProcessing}
+              onClick={() => {
+                onClose();
+                onOpenSlidesExport();
+              }}
+              className="p-3.5 rounded-xl bg-[#1a1a1f] border border-amber-500/30 hover:border-amber-400 hover:bg-[#25252c] text-left transition group flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center mb-2.5 group-hover:scale-110 transition">
+                <Presentation className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-semibold text-xs text-white group-hover:text-amber-300 flex items-center gap-1">
+                  <span>Ekspor ke Google Slides</span>
+                  <span className="text-[9px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded font-mono font-bold">DECK</span>
+                </div>
+                <div className="text-[11px] text-gray-400 mt-0.5">
+                  Buat presentasi deck Google Slides resmi terformat otomatis
+                </div>
+              </div>
+            </button>
+
             {/* Download Standalone HTML Carousel */}
             <button
               type="button"

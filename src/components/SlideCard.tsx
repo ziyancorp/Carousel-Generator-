@@ -91,19 +91,19 @@ function renderTerminalBlock(slide: Slide, theme: ThemeConfig) {
       </div>
 
       {/* Terminal Content */}
-      <div className="p-3 text-[10px] font-mono leading-relaxed space-y-1 overflow-hidden">
+      <div className="p-2.5 text-[9.5px] font-mono leading-relaxed space-y-1 overflow-hidden">
         {isInputType ? (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between bg-[#1f293d] px-2.5 py-1 rounded-md border border-[#374151]">
-              <span className="text-gray-300 font-mono text-[9.5px] truncate">
+              <span className="text-gray-300 font-mono text-[9px] break-all">
                 {lines[0].replace('[Copy]', '').trim()}
               </span>
-              <span className="bg-blue-600 text-white text-[8.5px] font-sans px-2 py-0.5 rounded font-semibold shrink-0 ml-1">
+              <span className="bg-blue-600 text-white text-[8px] font-sans px-2 py-0.5 rounded font-semibold shrink-0 ml-1">
                 Copy
               </span>
             </div>
             {lines.slice(1).map((line, lIdx) => (
-              <div key={lIdx} className="text-[#4ade80] text-[9.5px]">
+              <div key={lIdx} className="text-[#4ade80] text-[9px] break-words">
                 {line}
               </div>
             ))}
@@ -121,9 +121,9 @@ function renderTerminalBlock(slide: Slide, theme: ThemeConfig) {
             else if (isArrow) textColor = 'text-cyan-400';
 
             return (
-              <div key={lIdx} className={`truncate ${textColor} flex items-start gap-1`}>
+              <div key={lIdx} className={`${textColor} flex items-start gap-1 break-words`}>
                 {isCommand && <span className="text-rose-400 font-bold shrink-0">$</span>}
-                <span className="truncate">
+                <span className="break-words">
                   {isCommand ? line.replace(/^\$\s*/, '') : line}
                 </span>
               </div>
@@ -157,14 +157,31 @@ export const SlideCard: React.FC<SlideCardProps> = ({
   const isHook = index === 0 || slide.type === 'hook';
   const isCta = index === totalSlides - 1 || slide.type === 'cta';
 
-  const cardWidth = aspectRatio === '4:5' ? 'w-[320px]' : 'w-[360px]';
-  const cardHeight = aspectRatio === '4:5' ? 'h-[410px]' : 'h-[360px]';
+  const cardWidth = aspectRatio === '4:5' ? 'w-[340px]' : 'w-[360px]';
+  const cardHeight = aspectRatio === '4:5' ? 'h-[425px]' : 'h-[360px]';
 
   const formattedNum = String(index + 1).padStart(2, '0');
   const formattedTotal = String(totalSlides).padStart(2, '0');
 
   const selectedIcon = AVAILABLE_ICONS.find((ic) => ic.id === slide.icon);
   const iconDisplay = selectedIcon ? selectedIcon.emoji : isHook ? '🔥' : isCta ? '📌' : '✨';
+
+  // Dynamic typography scale depending on content density
+  const titleLength = (slide.title || '').length;
+  const hasManyElements = Boolean(
+    (slide.points && slide.points.length > 0) && (slide.codeSnippet || slide.tip || slide.body)
+  );
+
+  const titleSizeClass =
+    isHook
+      ? titleLength > 45
+        ? 'text-[17px]'
+        : 'text-[20px]'
+      : titleLength > 55
+      ? 'text-[14.5px]'
+      : titleLength > 35 || hasManyElements
+      ? 'text-[16px]'
+      : 'text-[18px]';
 
   // Action Icon Top-Right helper
   const renderActionIcon = () => {
@@ -364,12 +381,10 @@ export const SlideCard: React.FC<SlideCardProps> = ({
           </div>
 
           {/* Main Card Body */}
-          <div className="my-auto flex flex-col justify-center overflow-hidden">
+          <div className="my-auto flex flex-col justify-center">
             {/* Title & Subtitle */}
             <h2
-              className={`leading-[1.2] font-black tracking-tight ${
-                isHook ? 'text-[20px]' : 'text-[17px]'
-              }`}
+              className={`leading-[1.25] font-black tracking-tight break-words ${titleSizeClass}`}
               style={{ color: isTechGuideStyle ? '#0f172a' : theme.titleColor }}
             >
               {renderHighlightedTitle(slide.title, slide.highlightWord, theme.accentColor || '#ff4d36')}
@@ -377,7 +392,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
 
             {slide.body && (
               <p
-                className="text-[11px] leading-relaxed mt-1.5 line-clamp-3 font-normal"
+                className="text-[11.5px] leading-relaxed mt-1.5 break-words font-normal"
                 style={{ color: isTechGuideStyle ? '#475569' : theme.bodyColor }}
               >
                 {slide.body}
@@ -389,8 +404,8 @@ export const SlideCard: React.FC<SlideCardProps> = ({
 
             {/* Checklist / Points */}
             {slide.points && slide.points.length > 0 && (
-              <div className="pt-1.5 space-y-1">
-                {slide.points.slice(0, 3).map((pt, pIdx) => (
+              <div className="pt-2 space-y-1.5">
+                {slide.points.slice(0, 4).map((pt, pIdx) => (
                   <div key={pIdx} className="flex items-start gap-1.5 text-[10.5px]">
                     <div
                       className={`w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
@@ -402,7 +417,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
                       <Check className="w-2.5 h-2.5" />
                     </div>
                     <span
-                      className="leading-tight truncate"
+                      className="leading-snug break-words flex-1 font-medium"
                       style={{ color: isTechGuideStyle ? '#1e293b' : theme.bodyColor }}
                     >
                       {pt}
@@ -414,9 +429,9 @@ export const SlideCard: React.FC<SlideCardProps> = ({
 
             {/* Tip / Callout Box */}
             {slide.tip && (
-              <div className="mt-2 p-1.5 px-2.5 rounded-lg bg-blue-50/70 border-l-2 border-blue-600 flex items-center gap-1.5 text-[10px] text-slate-700">
-                <span className="text-xs">💡</span>
-                <span className="truncate font-medium">{slide.tip}</span>
+              <div className="mt-2.5 p-2 px-2.5 rounded-lg bg-blue-50/70 border-l-2 border-blue-600 flex items-start gap-1.5 text-[10px] text-slate-700">
+                <span className="text-xs shrink-0 mt-0.5">💡</span>
+                <span className="font-medium leading-snug break-words flex-1">{slide.tip}</span>
               </div>
             )}
 

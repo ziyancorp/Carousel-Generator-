@@ -19,7 +19,8 @@ import {
   HardDrive,
   Table,
   RotateCcw,
-  ShieldCheck
+  ShieldCheck,
+  Presentation
 } from 'lucide-react';
 import { ThemeId, FontId, AspectRatio, ApiKeyConfig } from '../types';
 import { THEMES, FONT_OPTIONS } from '../constants/themes';
@@ -46,6 +47,8 @@ interface SidebarProps {
   onAspectRatioChange: (ratio: AspectRatio) => void;
   isGenerating: boolean;
   onGenerate: () => void;
+  onOpenSlidesExport?: () => void;
+  onOpenSlidesImport?: () => void;
   onOpenDriveExport?: () => void;
   onOpenSheetsSync?: () => void;
   onOpenSheetsImport: () => void;
@@ -55,6 +58,7 @@ interface SidebarProps {
   isGoogleConnected?: boolean;
   onConnectGoogle?: () => void;
   onSelectPreset?: (preset: CarouselPreset) => void;
+  onOpenMaterialIngest?: () => void;
 }
 
 const TONES = [
@@ -103,6 +107,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAspectRatioChange,
   isGenerating,
   onGenerate,
+  onOpenSlidesExport,
+  onOpenSlidesImport,
   onOpenDriveExport,
   onOpenSheetsSync,
   onOpenSheetsImport,
@@ -112,6 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isGoogleConnected,
   onConnectGoogle,
   onSelectPreset,
+  onOpenMaterialIngest,
 }) => {
   const [showInspirations, setShowInspirations] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
@@ -120,6 +127,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="w-full md:w-84 lg:w-[320px] border-r border-[#1f1f23] bg-[#111114] text-gray-200 flex flex-col h-full overflow-y-auto shrink-0 z-20 transition-colors duration-200">
       <div className="p-4 sm:p-5 flex-1 space-y-5">
+        {/* Ingest Materi Multi-Source Pipeline Banner */}
+        {onOpenMaterialIngest && (
+          <div className="p-3.5 rounded-xl border bg-gradient-to-r from-blue-900/30 via-indigo-900/30 to-purple-900/30 border-indigo-500/40 shadow-lg shadow-indigo-950/40 flex items-center justify-between transition hover:border-indigo-400">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white tracking-tight">Ingest Materi (AI Hub)</p>
+                <p className="text-[10px] text-indigo-300">YouTube, Web, PDF, Teks</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenMaterialIngest}
+              className="px-3 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-md shadow-indigo-600/30"
+            >
+              Mulai
+            </button>
+          </div>
+        )}
+
         {/* AI Provider Status Card */}
         <div className="p-3 rounded-xl bg-[#18181d] border border-[#2d2d35] flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -362,16 +391,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Google Sheets Bulk Import Trigger */}
-        <div className="pt-2 border-t border-[#1f1f23]">
-          <button
-            type="button"
-            onClick={onOpenSheetsImport}
-            className="w-full py-2 px-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-300 text-xs font-semibold flex items-center justify-center gap-2 transition"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Import Ide Topik dari Google Sheets</span>
-          </button>
+        {/* Google Workspace Hub Quick Actions */}
+        <div className="pt-2 border-t border-[#1f1f23] space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400">
+            <span>Google Workspace Hub</span>
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono">Slides + Sheets</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={onOpenSlidesExport}
+              className="py-2 px-2.5 rounded-xl border border-amber-500/30 bg-amber-950/20 hover:bg-amber-950/40 text-amber-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
+            >
+              <Presentation className="w-3.5 h-3.5 text-amber-400" />
+              <span>Slides Deck</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenSheetsImport}
+              className="py-2 px-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Import Sheet</span>
+            </button>
+          </div>
         </div>
       </div>
 

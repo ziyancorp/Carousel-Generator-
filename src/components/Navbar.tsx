@@ -15,7 +15,8 @@ import {
   ChevronDown,
   BookOpen,
   Sparkles,
-  Cpu
+  Cpu,
+  Presentation
 } from 'lucide-react';
 import { AspectRatio, ThemeId, FontId, AppUiMode, ActiveAppTab, ApiKeyConfig } from '../types';
 import { THEMES, FONT_OPTIONS } from '../constants/themes';
@@ -38,6 +39,7 @@ interface NavbarProps {
   onOpenSheetsSync: () => void;
   onOpenApiKeyModal: () => void;
   onOpenContentWritingModal: () => void;
+  onOpenMaterialIngest?: () => void;
   apiKeyConfig?: ApiKeyConfig;
   slideCount: number;
 }
@@ -60,6 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSheetsSync,
   onOpenApiKeyModal,
   onOpenContentWritingModal,
+  onOpenMaterialIngest,
   apiKeyConfig,
   slideCount,
 }) => {
@@ -133,6 +136,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </button>
         </div>
+
+        {/* Ingest Materi Button */}
+        {onOpenMaterialIngest && (
+          <button
+            type="button"
+            onClick={onOpenMaterialIngest}
+            className="ml-1 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600/20 to-blue-600/20 hover:from-indigo-600/30 hover:to-blue-600/30 text-indigo-400 border border-indigo-500/30 transition shadow-sm"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Ingest Materi AI</span>
+          </button>
+        )}
 
         {/* Tulis Konten Button (Carousel Only) */}
         {activeTab === 'carousel' && (
@@ -265,7 +280,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           type="button"
           onClick={onConnectGoogle}
-          title={isGoogleConnected ? 'Google Drive & Sheets Terhubung' : 'Hubungkan Google Drive & Sheets'}
+          title={isGoogleConnected ? 'Google Workspace (Slides, Drive & Sheets) Terhubung' : 'Buka Google Workspace Hub (Slides, Drive & Sheets)'}
           className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
             isGoogleConnected
               ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
@@ -275,11 +290,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           <div className="flex items-center -space-x-1">
+            <Presentation className="w-3.5 h-3.5 text-amber-400" />
             <HardDrive className="w-3.5 h-3.5 text-blue-400" />
-            <Table className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <span className="hidden sm:inline">
-            {isGoogleConnected ? 'Google Sync' : 'Google Drive'}
+            {isGoogleConnected ? 'Google Hub' : 'Google Slides'}
           </span>
           {isGoogleConnected && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
         </button>

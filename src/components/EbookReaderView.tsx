@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   BookOpen,
   Download,
@@ -7,26 +7,21 @@ import {
   Check,
   Sparkles,
   Layers,
-  FileText,
   Plus,
   Trash2,
   Edit3,
-  ExternalLink,
   ChevronRight,
   Sun,
   Moon,
-  Compass,
   Zap,
   Tag,
-  Share2,
-  Terminal,
   ShieldCheck,
   RefreshCw,
-  Eye
+  Loader2,
+  FileDown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { EbookData, EbookModule, Slide, ApiKeyConfig } from '../types';
-import { SAMPLE_EBOOKS } from '../data/sampleEbooks';
 import { generateStandaloneEbookHtml } from '../utils/ebookHtmlExporter';
 
 interface EbookReaderViewProps {
@@ -38,6 +33,8 @@ interface EbookReaderViewProps {
   isDarkUi: boolean;
   apiKeyConfig?: ApiKeyConfig;
   onOpenApiKeyModal: () => void;
+  onOpenMaterialIngest?: () => void;
+  onDistillToCarousel?: (slides: Slide[], topic: string) => void;
 }
 
 export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
@@ -49,15 +46,15 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
   isDarkUi,
   apiKeyConfig,
   onOpenApiKeyModal,
+  onOpenMaterialIngest,
+  onDistillToCarousel,
 }) => {
   const [activeModuleId, setActiveModuleId] = useState<string>(
     currentEbook.modules[0]?.id || 'modul-1'
   );
   const [copiedPromptIndex, setCopiedPromptIndex] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [generateTopic, setGenerateTopic] = useState('');
-  const [showAiModal, setShowAiModal] = useState(false);
+  const [isDistillingCarousel, setIsDistillingCarousel] = useState(false);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [ebookTheme, setEbookTheme] = useState<'light' | 'dark'>(isDarkUi ? 'dark' : 'light');
 
@@ -141,6 +138,41 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
     triggerConfetti();
   };
 
+  // Distill this E-Book into a Carousel Slide Deck
+  const handleDistillToCarouselDeck = async () => {
+    if (!onDistillToCarousel) return;
+    setIsDistillingCarousel(true);
+
+    try {
+      const res = await fetch('/api/distill-ebook-to-carousel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ebook: currentEbook,
+          slideCount: Math.min(Math.max(currentEbook.modules.length + 2, 5), 8),
+          authorName: authorName || '@abangjal',
+          provider: apiKeyConfig?.provider || 'gemini',
+          apiKey: apiKeyConfig?.apiKey,
+          model: apiKeyConfig?.model,
+          baseUrl: apiKeyConfig?.baseUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (data && data.slides) {
+        onDistillToCarousel(data.slides, currentEbook.title);
+        triggerConfetti();
+      } else {
+        alert('Gagal meringkas E-Book menjadi carousel.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Terjadi kesalahan saat meringkas E-Book.');
+    } finally {
+      setIsDistillingCarousel(false);
+    }
+  };
+
   // Download Standalone HTML
   const handleDownloadHtml = () => {
     try {
@@ -215,40 +247,7 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
     setTimeout(() => setCopiedAll(false), 2500);
   };
 
-  // Generate full new E-Book with AI
-  const handleGenerateAiEbook = async () => {
-    const topicToUse = generateTopic.trim() || carouselTopic || 'Rahasia Konten AI';
-    setIsGeneratingAi(true);
-    try {
-      const res = await fetch('/api/generate-ebook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: topicToUse,
-          authorName,
-          provider: apiKeyConfig?.provider || 'gemini',
-          apiKey: apiKeyConfig?.apiKey,
-          model: apiKeyConfig?.model,
-          baseUrl: apiKeyConfig?.baseUrl,
-        }),
-      });
-
-      const data = await res.json();
-      if (data && data.ebook) {
-        onUpdateEbook(data.ebook);
-        setActiveModuleId(data.ebook.modules[0]?.id || 'modul-1');
-        setShowAiModal(false);
-        triggerConfetti();
-      } else {
-        alert('Gagal menghasilkan E-Book dengan AI.');
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert(err.message || 'Terjadi kesalahan saat memanggil AI.');
-    } finally {
-      setIsGeneratingAi(false);
-    }
-  };
+  const activeModule = currentEbook.modules.find((m) => m.id === activeModuleId) || currentEbook.modules[0];
 
   return (
     <div className={`w-full min-h-screen flex flex-col ${isDarkUi ? 'bg-[#090d16] text-gray-100' : 'bg-[#f8fafc] text-gray-900'}`}>
@@ -273,34 +272,38 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          {/* Preset Selector */}
-          <div className="hidden lg:flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-gray-700/30 text-xs shrink-0">
-            <span className="text-[10px] text-gray-400 font-semibold px-2">Preset:</span>
-            {SAMPLE_EBOOKS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => {
-                  onUpdateEbook(preset);
-                  setActiveModuleId(preset.modules[0]?.id || 'modul-1');
-                }}
-                className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                  currentEbook.id === preset.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {preset.title.length > 18 ? preset.title.slice(0, 16) + '...' : preset.title}
-              </button>
-            ))}
-          </div>
+          {/* Ingest Materi & AI Generator */}
+          {onOpenMaterialIngest && (
+            <button
+              type="button"
+              onClick={onOpenMaterialIngest}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20 transition flex items-center gap-1.5 shrink-0"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Ingest Materi Baru / AI</span>
+            </button>
+          )}
 
-          {/* Convert from Carousel */}
+          {/* Distill E-Book to Carousel Slides */}
+          {onDistillToCarousel && currentEbook.modules.length > 0 && (
+            <button
+              type="button"
+              disabled={isDistillingCarousel}
+              onClick={handleDistillToCarouselDeck}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+              title="Ringkas buku panduan ini menjadi slide carousel microblog"
+            >
+              {isDistillingCarousel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+              <span>{isDistillingCarousel ? 'Meringkas Slide...' : 'Distill ke Carousel'}</span>
+            </button>
+          )}
+
+          {/* Convert from Active Carousel */}
           {carouselSlides.length > 0 && (
             <button
               type="button"
               onClick={handleConvertCarouselToEbook}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1.5 shrink-0"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 transition flex items-center gap-1.5 shrink-0"
               title="Ubah slide carousel aktif menjadi modul e-book"
             >
               <Zap className="w-3.5 h-3.5" />
@@ -309,24 +312,13 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
             </button>
           )}
 
-          {/* AI Generator Trigger */}
-          <button
-            type="button"
-            onClick={() => setShowAiModal(true)}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 transition flex items-center gap-1.5 shrink-0"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Generate AI E-Book</span>
-            <span className="sm:hidden">AI E-Book</span>
-          </button>
-
           {/* Export Standalone HTML */}
           <button
             type="button"
             onClick={handleDownloadHtml}
-            className="px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition flex items-center gap-1.5 shrink-0"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5 shrink-0"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-blue-400" />
             <span className="hidden sm:inline">Download HTML</span>
             <span className="sm:hidden">HTML</span>
           </button>
@@ -348,438 +340,295 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
             type="button"
             onClick={handleCopyMarkdown}
             className={`p-2 rounded-xl border text-xs transition shrink-0 ${
-              isDarkUi ? 'bg-[#182030] hover:bg-[#202b40] text-gray-300 border-[#2d3a52]' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
+              isDarkUi ? 'bg-[#182030] hover:bg-[#202b40] text-gray-200 border-[#2d3a52]' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border-gray-300'
             }`}
-            title="Salin isi E-Book ke Markdown"
+            title="Salin seluruh isi Markdown E-Book"
           >
             {copiedAll ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+          </button>
+
+          {/* Theme Toggle */}
+          <button
+            type="button"
+            onClick={() => setEbookTheme(ebookTheme === 'dark' ? 'light' : 'dark')}
+            className={`p-2 rounded-xl border transition shrink-0 ${
+              isDarkUi ? 'bg-[#182030] border-[#2d3a52] text-yellow-400' : 'bg-gray-100 border-gray-300 text-gray-700'
+            }`}
+            title="Ganti tema baca"
+          >
+            {ebookTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
         </div>
       </header>
 
-      {/* Mobile Sticky Module Selector (< md) */}
-      <div className={`md:hidden px-4 py-2.5 border-b flex items-center justify-between sticky top-[57px] z-20 shrink-0 ${
-        isDarkUi ? 'bg-[#0c101a] border-[#1a2233]' : 'bg-gray-50 border-gray-200'
-      }`}>
-        <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-          <Compass className="w-3.5 h-3.5" /> Modul:
-        </span>
-        <select
-          value={activeModuleId}
-          onChange={(e) => {
-            setActiveModuleId(e.target.value);
-            const el = document.getElementById(e.target.value);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-          }}
-          className={`text-xs font-semibold rounded-lg px-2 py-1 outline-none max-w-[240px] truncate border ${
-            isDarkUi ? 'bg-[#182030] text-gray-200 border-[#2d3a52]' : 'bg-white text-gray-800 border-gray-300 shadow-sm'
-          }`}
-        >
-          {currentEbook.modules.map((m, idx) => (
-            <option key={m.id} value={m.id}>
-              {m.moduleNumber || idx + 1}. {m.title}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Main Reader Workspace */}
-      <div className="flex-1 flex max-w-[1400px] w-full mx-auto">
-        {/* Left Sticky Navigation Sidebar */}
-        <aside className={`w-72 lg:w-80 shrink-0 border-r hidden md:flex flex-col sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto ${
-          isDarkUi ? 'bg-[#0c101a] border-[#1a2233]' : 'bg-white border-gray-200'
-        }`}>
-          <div className="p-4 border-b border-gray-700/20">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-500 mb-1 flex items-center gap-1.5">
-              <Compass className="w-3.5 h-3.5" /> Daftar Modul
-            </div>
-            <h2 className="font-bold text-xs text-gray-400 line-clamp-1">{currentEbook.title}</h2>
-          </div>
-
-          <nav className="p-3 space-y-1 flex-1">
-            {currentEbook.modules.map((m, idx) => {
-              const isActive = activeModuleId === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveModuleId(m.id);
-                    const el = document.getElementById(m.id);
-                    if (el) {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                  }}
-                  className={`w-full text-left p-2.5 rounded-xl transition flex items-start gap-2.5 group ${
-                    isActive
-                      ? isDarkUi
-                        ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                        : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      : isDarkUi
-                      ? 'text-gray-400 hover:text-gray-200 hover:bg-[#141b2b]'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-                >
-                  <span className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 ${
-                    isActive ? 'bg-blue-600 text-white' : isDarkUi ? 'bg-[#182030] text-gray-400' : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {m.moduleNumber || idx + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-xs truncate">{m.title}</div>
-                    <div className="text-[10px] opacity-70 truncate">{m.badge || `Modul ${idx + 1}`}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-4 border-t border-gray-700/20 text-[11px] text-gray-500 flex items-center justify-between">
-            <span>{currentEbook.edition}</span>
-            <span className="font-mono">{currentEbook.modules.length} Modul</span>
-          </div>
-        </aside>
-
-        {/* Right Scrollable Content Area */}
-        <main className="flex-1 px-4 sm:px-8 py-8 max-w-4xl mx-auto overflow-y-auto">
-          {/* E-Book Hero Cover Banner */}
-          <section className="rounded-3xl p-6 sm:p-10 text-white bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 shadow-xl shadow-blue-900/20 relative overflow-hidden mb-10">
-            <div className="relative z-10">
-              <span className="inline-block px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-bold uppercase tracking-wider mb-4 border border-white/30">
-                {currentEbook.tag || 'PANDUAN RESMI CREATOR'}
+      {/* Main Reader Layout */}
+      <div className="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 gap-6">
+        {/* Left Sidebar: Module Navigation & Metadata */}
+        <aside className="w-full md:w-80 shrink-0 space-y-4">
+          {/* E-Book Hero Card */}
+          <div className={`p-5 rounded-2xl border shadow-sm ${
+            ebookTheme === 'dark' ? 'bg-[#0f172a] border-[#1e293b]' : 'bg-white border-gray-200'
+          }`}>
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-blue-500 font-bold block">
+                {currentEbook.tag}
               </span>
-              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight leading-tight mb-3">
-                {currentEbook.title}
-              </h1>
-              <p className="text-sm sm:text-base text-white/90 max-w-2xl leading-relaxed mb-6 font-medium">
-                {currentEbook.subtitle}
-              </p>
+              <h2 className="text-lg font-black tracking-tight leading-snug">{currentEbook.title}</h2>
+              <p className="text-xs text-gray-400 leading-relaxed">{currentEbook.subtitle}</p>
+            </div>
 
-              {/* Metadata Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-white/20 text-xs">
-                <div>
-                  <span className="text-[10px] text-white/70 uppercase font-semibold block">Tingkat Kesulitan</span>
-                  <span className="font-bold text-white text-xs sm:text-sm">{currentEbook.difficulty}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-white/70 uppercase font-semibold block">Platform Utama</span>
-                  <span className="font-bold text-white text-xs sm:text-sm">{currentEbook.platform}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-white/70 uppercase font-semibold block">Potensi Cuan</span>
-                  <span className="font-bold text-white text-xs sm:text-sm">{currentEbook.monetization}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-white/70 uppercase font-semibold block">Format File</span>
-                  <span className="font-bold text-white text-xs sm:text-sm">{currentEbook.format}</span>
-                </div>
+            <div className="mt-4 pt-4 border-t border-gray-700/30 grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <span className="text-gray-500 block">Penulis:</span>
+                <span className="font-semibold text-gray-200">{currentEbook.author}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Level:</span>
+                <span className="font-semibold text-gray-200">{currentEbook.difficulty}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Potensi Cuan:</span>
+                <span className="font-semibold text-emerald-400">{currentEbook.monetization}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Edisi:</span>
+                <span className="font-semibold text-gray-200">{currentEbook.edition}</span>
               </div>
             </div>
 
-            {/* Subtle decorative glow */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none transform translate-x-1/3 -translate-y-1/3" />
-          </section>
+            <button
+              type="button"
+              onClick={() => setIsEditingMeta(!isEditingMeta)}
+              className="mt-4 w-full py-1.5 rounded-xl border border-gray-700/50 hover:bg-gray-800/40 text-[11px] font-medium text-gray-300 transition flex items-center justify-center gap-1.5"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>{isEditingMeta ? 'Tutup Edit Info' : 'Edit Judul & Info'}</span>
+            </button>
+          </div>
 
-          {/* Module Sections */}
-          <div className="space-y-12">
-            {currentEbook.modules.map((module, mIdx) => (
-              <section
-                key={module.id}
-                id={module.id}
-                className="scroll-mt-20 space-y-4"
-              >
-                {/* Module Header */}
-                <div className="space-y-1">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider bg-blue-600/10 text-blue-500 border border-blue-500/20">
-                    {module.badge || `Modul ${mIdx + 1}`}
+          {/* Edit Meta Form */}
+          {isEditingMeta && (
+            <div className={`p-4 rounded-2xl border space-y-3 ${
+              ebookTheme === 'dark' ? 'bg-[#0f172a] border-[#1e293b]' : 'bg-white border-gray-200'
+            }`}>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-blue-400">Edit Info E-Book</h3>
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">Judul Utama</label>
+                <input
+                  type="text"
+                  value={currentEbook.title}
+                  onChange={(e) => onUpdateEbook({ ...currentEbook, title: e.target.value })}
+                  className="w-full bg-[#1e293b] border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">Subtitle</label>
+                <textarea
+                  rows={2}
+                  value={currentEbook.subtitle}
+                  onChange={(e) => onUpdateEbook({ ...currentEbook, subtitle: e.target.value })}
+                  className="w-full bg-[#1e293b] border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">Penulis</label>
+                <input
+                  type="text"
+                  value={currentEbook.author}
+                  onChange={(e) => onUpdateEbook({ ...currentEbook, author: e.target.value })}
+                  className="w-full bg-[#1e293b] border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Module List Navigation */}
+          <div className={`p-4 rounded-2xl border shadow-sm space-y-2 ${
+            ebookTheme === 'dark' ? 'bg-[#0f172a] border-[#1e293b]' : 'bg-white border-gray-200'
+          }`}>
+            <div className="flex items-center justify-between px-1 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                Daftar Modul ({currentEbook.modules.length})
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              {currentEbook.modules.map((module, idx) => {
+                const isActive = module.id === activeModuleId;
+                return (
+                  <button
+                    key={module.id || idx}
+                    type="button"
+                    onClick={() => setActiveModuleId(module.id)}
+                    className={`w-full text-left p-3 rounded-xl transition flex items-center justify-between gap-2 ${
+                      isActive
+                        ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/20'
+                        : ebookTheme === 'dark'
+                        ? 'hover:bg-slate-800/60 text-slate-300'
+                        : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold shrink-0 ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-slate-700/40 text-slate-400'
+                      }`}>
+                        0{idx + 1}
+                      </span>
+                      <span className="text-xs truncate">{module.title}</span>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 shrink-0 transition ${isActive ? 'translate-x-0.5' : 'text-slate-500'}`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
+
+        {/* Center/Right: Active Module Reader Content */}
+        <main className="flex-1 space-y-6">
+          {activeModule ? (
+            <div className={`p-6 sm:p-8 rounded-2xl border shadow-lg space-y-6 transition ${
+              ebookTheme === 'dark' ? 'bg-[#0f172a] border-[#1e293b] text-slate-100' : 'bg-white border-gray-200 text-slate-900'
+            }`}>
+              {/* Module Header */}
+              <div className="border-b border-gray-700/30 pb-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-400 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20">
+                    {activeModule.badge || `Modul ${activeModule.moduleNumber || 1}`}
                   </span>
-                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-                    {module.title}
-                  </h2>
-                  {module.description && (
-                    <p className="text-xs sm:text-sm text-gray-400">
-                      {module.description}
-                    </p>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight mt-1">{activeModule.title}</h2>
+                <p className="text-sm text-gray-400 mt-1">{activeModule.description}</p>
+              </div>
+
+              {/* Intro Card */}
+              {activeModule.introCard && (
+                <div className={`p-5 rounded-2xl border space-y-3 ${
+                  ebookTheme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">{activeModule.introCard.icon || '📘'}</div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-base text-blue-400">{activeModule.introCard.title}</h3>
+                      {activeModule.introCard.subtitle && (
+                        <p className="text-xs text-gray-400 mt-0.5">{activeModule.introCard.subtitle}</p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs sm:text-sm leading-relaxed text-gray-300">
+                    {activeModule.introCard.body}
+                  </p>
+
+                  {activeModule.introCard.checklist && (
+                    <div className="mt-3 pt-3 border-t border-gray-800 space-y-2">
+                      {activeModule.introCard.checklist.map((item, cIdx) => (
+                        <div key={cIdx} className="flex items-start gap-2.5 text-xs text-slate-300">
+                          <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
+              )}
 
-                {/* Intro / Problem Card */}
-                {module.introCard && (
-                  <div className={`p-6 rounded-2xl border transition shadow-sm ${
-                    isDarkUi ? 'bg-[#111624] border-[#1e293d]' : 'bg-white border-gray-200'
-                  }`}>
-                    <div className="flex items-start gap-3.5 mb-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-600/10 text-blue-500 flex items-center justify-center text-xl shrink-0">
-                        {module.introCard.icon || '📘'}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-base">{module.introCard.title}</h3>
-                        {module.introCard.subtitle && (
-                          <p className="text-xs text-gray-400">{module.introCard.subtitle}</p>
-                        )}
-                        {module.introCard.badge && (
-                          <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded font-mono bg-blue-500/20 text-blue-400">
-                            {module.introCard.badge}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs sm:text-sm text-gray-300 leading-relaxed mb-3">
-                      {module.introCard.body}
-                    </p>
-                    {module.introCard.checklist && module.introCard.checklist.length > 0 && (
-                      <ul className="space-y-2 mt-3 pt-3 border-t border-gray-700/20 text-xs sm:text-sm">
-                        {module.introCard.checklist.map((item, cIdx) => (
-                          <li key={cIdx} className="flex items-start gap-2 text-gray-300">
-                            <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                              ✓
-                            </span>
-                            <span>{item}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                {/* Step Grid Cards (1, 2, 3) */}
-                {module.steps && module.steps.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {module.steps.map((st, sIdx) => (
+              {/* Action Steps */}
+              {activeModule.steps && activeModule.steps.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    Langkah Eksekusi Praktis
+                  </h4>
+                  <div className="space-y-3">
+                    {activeModule.steps.map((step, sIdx) => (
                       <div
                         key={sIdx}
-                        className={`p-4 rounded-2xl border ${
-                          isDarkUi ? 'bg-[#151c2e] border-[#22304a]' : 'bg-gray-50 border-gray-200'
+                        className={`p-4 rounded-xl border flex items-start gap-3.5 ${
+                          ebookTheme === 'dark' ? 'bg-slate-900/40 border-slate-800/80' : 'bg-white border-slate-200'
                         }`}
                       >
-                        {st.badge ? (
-                          <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 mb-2">
-                            {st.badge}
-                          </span>
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center mb-2 shadow-sm">
-                            {st.number}
-                          </div>
-                        )}
-                        <h4 className="font-bold text-xs sm:text-sm mb-1">{st.title}</h4>
-                        <p className="text-[11px] sm:text-xs text-gray-400 leading-relaxed">{st.text}</p>
+                        <div className="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-mono font-bold text-xs shrink-0">
+                          {step.number || sIdx + 1}
+                        </div>
+                        <div className="space-y-1">
+                          <h5 className="font-bold text-sm text-slate-200">{step.title}</h5>
+                          <p className="text-xs text-slate-400 leading-relaxed">{step.text}</p>
+                        </div>
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Feature Comparison Table */}
-                {module.table && (
-                  <div className={`rounded-2xl border overflow-hidden ${
-                    isDarkUi ? 'bg-[#111624] border-[#1e293d]' : 'bg-white border-gray-200'
-                  }`}>
-                    {module.table.title && (
-                      <div className="px-4 py-2.5 border-b border-gray-700/20 font-bold text-xs text-gray-300">
-                        {module.table.title}
-                      </div>
-                    )}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className={isDarkUi ? 'bg-[#182030] text-gray-200' : 'bg-gray-100 text-gray-700'}>
-                            {module.table.headers.map((h, hIdx) => (
-                              <th key={hIdx} className="px-4 py-3 font-bold">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-700/20">
-                          {module.table.rows.map((row, rIdx) => (
-                            <tr key={rIdx} className={isDarkUi ? 'hover:bg-white/5' : 'hover:bg-gray-50'}>
-                              {row.cols.map((col, cIdx) => {
-                                const badgeInfo = row.badgeCols?.find((b) => b.index === cIdx);
-                                return (
-                                  <td key={cIdx} className="px-4 py-3 text-gray-300">
-                                    {badgeInfo ? (
-                                      <span className="px-2 py-0.5 rounded font-semibold text-[10px] bg-blue-500/20 text-blue-400">
-                                        {col}
-                                      </span>
-                                    ) : (
-                                      col
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Master Prompt Containers with Copy Buttons */}
-                {module.prompts && module.prompts.length > 0 && (
+              {/* Master Prompts / Code Snippets */}
+              {activeModule.prompts && activeModule.prompts.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4" />
+                    <span>Master Prompt & Command Siap Pakai</span>
+                  </h4>
                   <div className="space-y-3">
-                    {module.prompts.map((pr, pIdx) => {
-                      const promptKey = `${module.id}-p-${pIdx}`;
+                    {activeModule.prompts.map((p, pIdx) => {
+                      const promptKey = `prompt-${activeModule.id}-${pIdx}`;
                       const isCopied = copiedPromptIndex === promptKey;
                       return (
-                        <div
-                          key={pIdx}
-                          className={`rounded-2xl border overflow-hidden ${
-                            isDarkUi ? 'bg-[#111624] border-[#1e293d]' : 'bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          <div className={`px-4 py-2.5 flex items-center justify-between border-b ${
-                            isDarkUi ? 'bg-[#161c2d] border-[#1e293d]' : 'bg-gray-100 border-gray-200'
-                          }`}>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider">
-                                {pr.tag}
-                              </span>
-                              {pr.category && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold">
-                                  {pr.category}
-                                </span>
-                              )}
-                            </div>
+                        <div key={pIdx} className="rounded-xl border border-purple-500/30 bg-black/40 overflow-hidden">
+                          <div className="px-4 py-2 bg-purple-950/40 border-b border-purple-500/20 flex items-center justify-between">
+                            <span className="text-[11px] font-mono font-semibold text-purple-300">{p.tag}</span>
                             <button
                               type="button"
-                              onClick={() => handleCopyPrompt(pr.content, promptKey)}
-                              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 transition flex items-center gap-1"
+                              onClick={() => handleCopyPrompt(p.content, promptKey)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white transition flex items-center gap-1"
                             >
-                              {isCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                              <span>{isCopied ? 'Tersalin!' : 'Salin Prompt'}</span>
+                              {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{isCopied ? 'Tersalin' : 'Salin Prompt'}</span>
                             </button>
                           </div>
-                          <div className="p-4 font-mono text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
-                            {pr.content}
+                          <div className="p-4 text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
+                            {p.content}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Callout Boxes (Info, Warning, Success) */}
-                {module.callouts && module.callouts.length > 0 && (
-                  <div className="space-y-3">
-                    {module.callouts.map((c, cIdx) => (
-                      <div
-                        key={cIdx}
-                        className={`p-4 rounded-2xl border flex items-start gap-3 text-xs sm:text-sm ${
-                          c.type === 'warning'
-                            ? 'bg-amber-950/40 border-amber-800 text-amber-200'
-                            : c.type === 'success'
-                            ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
-                            : 'bg-blue-950/40 border-blue-800 text-blue-200'
-                        }`}
-                      >
-                        <div className="text-lg shrink-0 mt-0.5">
-                          {c.icon || (c.type === 'warning' ? '⚠️' : c.type === 'success' ? '🎁' : '💡')}
-                        </div>
-                        <div>
-                          <div className="font-bold mb-0.5">{c.title}</div>
-                          <p className="leading-relaxed opacity-90">{c.body}</p>
-                        </div>
+              {/* Callouts / Pro Tips */}
+              {activeModule.callouts && activeModule.callouts.length > 0 && (
+                <div className="space-y-3">
+                  {activeModule.callouts.map((call, cIdx) => (
+                    <div
+                      key={cIdx}
+                      className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3"
+                    >
+                      <div className="text-xl">{call.icon || '💡'}</div>
+                      <div className="space-y-0.5">
+                        <h5 className="font-bold text-xs text-amber-300">{call.title}</h5>
+                        <p className="text-xs text-amber-200/90 leading-relaxed">{call.body}</p>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            ))}
-          </div>
-        </main>
-      </div>
-
-      {/* AI Generate E-Book Modal */}
-      {showAiModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#111114] border border-[#2d2d35] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-scaleIn">
-            <div className="px-6 py-4 border-b border-[#1f1f23] flex items-center justify-between bg-[#0a0a0c]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4" />
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-white">Generate Full E-Book with AI</h3>
-                  <p className="text-[11px] text-gray-400">Buat buku panduan digital multi-modul lengkap</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAiModal(false)}
-                className="text-gray-400 hover:text-white transition"
-              >
-                ✕
-              </button>
+              )}
             </div>
-
-            <div className="p-6 space-y-4">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-gray-300">
-                  Topik atau Judul E-Book
-                </label>
-                <input
-                  type="text"
-                  value={generateTopic}
-                  onChange={(e) => setGenerateTopic(e.target.value)}
-                  placeholder="Contoh: Rahasia Monetisasi AI Faceless di Shopee & Lynk.id"
-                  className="w-full bg-[#1a1a1f] border border-[#2d2d35] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-gray-500 outline-none focus:border-indigo-500 transition"
-                />
-              </div>
-
-              {/* Provider Info Banner */}
-              <div className="p-3 rounded-xl bg-[#1a1a1f] border border-[#2d2d35] flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-gray-300">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>
-                    Provider AI:{' '}
-                    <strong className="text-white uppercase font-mono">
-                      {apiKeyConfig?.provider || 'Gemini 2.5 Flash'}
-                    </strong>
-                  </span>
-                </div>
+          ) : (
+            <div className="p-12 text-center border rounded-2xl border-dashed border-slate-700 space-y-4">
+              <BookOpen className="w-12 h-12 text-slate-500 mx-auto" />
+              <h3 className="text-base font-bold text-slate-300">Belum ada modul yang dipilih</h3>
+              <p className="text-xs text-slate-400">Gunakan Ingest Materi untuk menyusun E-Book otomatis dari AI.</p>
+              {onOpenMaterialIngest && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowAiModal(false);
-                    onOpenApiKeyModal();
-                  }}
-                  className="text-blue-400 hover:text-blue-300 font-semibold text-[11px]"
+                  onClick={onOpenMaterialIngest}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition"
                 >
-                  Ganti Provider / Key →
+                  Mulai Ingest Materi
                 </button>
-              </div>
+              )}
             </div>
-
-            <div className="px-6 py-4 border-t border-[#1f1f23] flex items-center justify-between bg-[#0a0a0c]">
-              <button
-                type="button"
-                onClick={() => setShowAiModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                disabled={isGeneratingAi}
-                onClick={handleGenerateAiEbook}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5 disabled:opacity-40"
-              >
-                {isGeneratingAi ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Menyusun E-Book...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Generate E-Book</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </main>
+      </div>
     </div>
   );
 };

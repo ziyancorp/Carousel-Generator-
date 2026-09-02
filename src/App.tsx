@@ -19,22 +19,23 @@ import {
 import { Slide, AspectRatio, ThemeId, FontId, AppUiMode, ActiveAppTab, ApiKeyConfig, EbookData } from './types';
 import { THEMES, FONT_OPTIONS, DEFAULT_THEME_ID, DEFAULT_FONT_ID, getTheme, getFont } from './constants/themes';
 import { SAMPLE_PRESETS } from './data/samplePresets';
-import { SAMPLE_EBOOKS } from './data/sampleEbooks';
+import { createInitialEmptyEbook } from './utils/defaultEbook';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { SlideCard } from './components/SlideCard';
 import { SlideEditorModal } from './components/SlideEditorModal';
-import { GoogleSyncModal } from './components/GoogleSyncModal';
+import { GoogleSyncModal, GoogleWorkspaceMode } from './components/GoogleSyncModal';
 import { ExportModal } from './components/ExportModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ContentWritingModal } from './components/ContentWritingModal';
 import { EbookReaderView } from './components/EbookReaderView';
+import { MaterialIngestionModal } from './components/MaterialIngestionModal';
 import { authenticateGoogle, getStoredGoogleToken } from './services/googleWorkspace';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveAppTab>('carousel');
-  const [topic, setTopic] = useState('Run Claude Code for Free with Kimi K2.6');
-  const [slideCount, setSlideCount] = useState(8);
+  const [topic, setTopic] = useState('Cara Automasi Riset & Bikin 30 Konten dalam 10 Menit Pakai AI');
+  const [slideCount, setSlideCount] = useState(5);
   const [authorName, setAuthorName] = useState<string>(() => {
     try {
       return localStorage.getItem('carouselx_author_name') || 'Arijal Meutuwah';
@@ -49,16 +50,16 @@ export default function App() {
       return '@abangjal';
     }
   });
-  const [tone, setTone] = useState('langkah demi langkah tutorial');
-  const [language, setLanguage] = useState('English');
+  const [tone, setTone] = useState('santai dan engaging');
+  const [language, setLanguage] = useState('Indonesian');
   const [currentTheme, setCurrentTheme] = useState<ThemeId>('tech-guide-pro');
   const [currentFont, setCurrentFont] = useState<FontId>('jakarta');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('4:5');
   const [appUiMode, setAppUiMode] = useState<AppUiMode>('dark');
   const [slides, setSlides] = useState<Slide[]>(SAMPLE_PRESETS[0].slides);
 
-  // E-Book State
-  const [currentEbook, setCurrentEbook] = useState<EbookData>(SAMPLE_EBOOKS[0]);
+  // E-Book State (Dynamic AI Initializer without hardcoded mock files)
+  const [currentEbook, setCurrentEbook] = useState<EbookData>(() => createInitialEmptyEbook('Arijal Meutuwah'));
 
   // Multi-Provider API Key Config
   const [apiKeyConfig, setApiKeyConfig] = useState<ApiKeyConfig>({
@@ -84,12 +85,13 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [isContentWritingModalOpen, setIsContentWritingModalOpen] = useState(false);
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [googleModal, setGoogleModal] = useState<{
     isOpen: boolean;
-    mode: 'drive_export' | 'sheets_sync' | 'sheets_import';
+    mode: GoogleWorkspaceMode;
   }>({
     isOpen: false,
-    mode: 'drive_export',
+    mode: 'slides_export',
   });
 
   const [polishingIndex, setPolishingIndex] = useState<number | null>(null);
@@ -424,11 +426,18 @@ export default function App() {
     const results: { filename: string; blob: Blob; dataUrl: string }[] = [];
 
     for (let i = 0; i < slides.length; i++) {
-      const node = document.getElementById(`slide-card-${i}`);
-      if (!node) continue;
+      const node =
+        document.getElementById(`carousel-slide-${i}`) ||
+        document.getElementById(`slide-card-${i}`) ||
+        document.querySelector(`[data-slide-index="${i}"]`);
 
-      const dataUrl = await toPng(node, {
-        pixelRatio: 3,
+      if (!node) {
+        console.warn(`Elemen slide index ${i} tidak ditemukan di DOM.`);
+        continue;
+      }
+
+      const dataUrl = await toPng(node as HTMLElement, {
+        pixelRatio: 2.5,
         cacheBust: true,
         quality: 0.98,
         filter: (child: HTMLElement) => {
@@ -443,6 +452,10 @@ export default function App() {
       const blob = await response.blob();
       const filename = `Slide_${String(i + 1).padStart(2, '0')}.png`;
       results.push({ filename, blob, dataUrl });
+    }
+
+    if (results.length === 0) {
+      throw new Error('Tidak ada elemen slide yang berhasil dirender. Pastikan tampilan carousel terbuka.');
     }
 
     return results;
@@ -475,6 +488,7 @@ export default function App() {
         onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
         onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
         onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
+        onOpenMaterialIngest={() => setIsMaterialModalOpen(true)}
         apiKeyConfig={apiKeyConfig}
         slideCount={slides.length}
       />
@@ -513,6 +527,17 @@ export default function App() {
           isDarkUi={isDarkUi}
           apiKeyConfig={apiKeyConfig}
           onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+          onOpenMaterialIngest={() => setIsMaterialModalOpen(true)}
+          onDistillToCarousel={(distilledSlides, distilledTopic) => {
+            setSlides(distilledSlides);
+            setTopic(distilledTopic);
+            setSlideCount(distilledSlides.length);
+            setActiveTab('carousel');
+            setMobileView('preview');
+            setStatusType('success');
+            setStatusMessage(`E-Book berhasil diringkas menjadi ${distilledSlides.length} slide Carousel!`);
+            setTimeout(() => setStatusMessage(''), 3000);
+          }}
         />
       ) : (
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
@@ -573,11 +598,14 @@ export default function App() {
               onAspectRatioChange={setAspectRatio}
               isGenerating={isGenerating}
               onGenerate={handleGenerateCarousel}
+              onOpenSlidesExport={() => setGoogleModal({ isOpen: true, mode: 'slides_export' })}
+              onOpenSlidesImport={() => setGoogleModal({ isOpen: true, mode: 'slides_import' })}
               onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
               onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
               onOpenSheetsImport={() => setGoogleModal({ isOpen: true, mode: 'sheets_import' })}
               onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
               onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+              onOpenMaterialIngest={() => setIsMaterialModalOpen(true)}
               apiKeyConfig={apiKeyConfig}
               isGoogleConnected={isGoogleConnected}
               onConnectGoogle={handleConnectGoogle}
@@ -732,19 +760,30 @@ export default function App() {
         onAiPolish={handleModalAiPolish}
       />
 
-      {/* Google Workspace Modal (Drive & Sheets) */}
+      {/* Google Workspace Modal (Slides, Drive & Sheets) */}
       <GoogleSyncModal
         isOpen={googleModal.isOpen}
-        mode={googleModal.mode}
+        initialMode={googleModal.mode}
         topic={topic}
         slides={slides}
-        authorName={authorHandle || authorName}
+        authorName={authorName}
+        authorHandle={authorHandle}
         onClose={() => setGoogleModal({ ...googleModal, isOpen: false })}
         onSelectImportedTopic={(selectedTopic, count) => {
           setTopic(selectedTopic);
           if (count) setSlideCount(count);
           setStatusType('info');
           setStatusMessage(`Topik dipilih: "${selectedTopic}". Klik Generate untuk memulai.`);
+        }}
+        onImportSlides={(imported) => {
+          if (imported.slides && imported.slides.length > 0) {
+            setTopic(imported.topic);
+            setSlides(imported.slides);
+            setSlideCount(imported.slides.length);
+            setStatusType('success');
+            setStatusMessage(`Berhasil mengimpor ${imported.slides.length} slide dari Google Slides!`);
+            setTimeout(() => setStatusMessage(''), 3000);
+          }
         }}
         renderSlideBlobs={renderSlideBlobs}
       />
@@ -760,10 +799,38 @@ export default function App() {
         font={activeFont}
         aspectRatio={aspectRatio}
         onClose={() => setIsExportModalOpen(false)}
+        onOpenSlidesExport={() => setGoogleModal({ isOpen: true, mode: 'slides_export' })}
         onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
         onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
         onSwitchToEbook={() => setActiveTab('ebook')}
         renderSlideBlobs={renderSlideBlobs}
+      />
+
+      {/* Multi-Source Material Ingestion & AI Generation Modal */}
+      <MaterialIngestionModal
+        isOpen={isMaterialModalOpen}
+        onClose={() => setIsMaterialModalOpen(false)}
+        onEbookGenerated={(newEbook) => {
+          setCurrentEbook(newEbook);
+          setActiveTab('ebook');
+          setStatusType('success');
+          setStatusMessage(`E-Book "${newEbook.title}" berhasil disusun oleh AI!`);
+          setTimeout(() => setStatusMessage(''), 3500);
+        }}
+        onCarouselGenerated={(newSlides, newTopic) => {
+          setSlides(newSlides);
+          setTopic(newTopic);
+          setSlideCount(newSlides.length);
+          setActiveTab('carousel');
+          setMobileView('preview');
+          setStatusType('success');
+          setStatusMessage(`Carousel "${newTopic}" berhasil diringkas dari materi!`);
+          setTimeout(() => setStatusMessage(''), 3500);
+        }}
+        authorName={authorName}
+        isDarkUi={isDarkUi}
+        apiKeyConfig={apiKeyConfig}
+        onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
       />
     </div>
   );

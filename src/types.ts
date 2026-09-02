@@ -4,7 +4,7 @@ export type AspectRatio = '4:5' | '1:1';
 
 export type ActiveAppTab = 'carousel' | 'ebook';
 
-export type AiProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'groq' | 'openrouter' | 'custom';
+export type AiProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'groq' | 'openrouter' | 'xkiro' | 'custom';
 
 export interface ApiKeyConfig {
   provider: AiProvider;
@@ -175,3 +175,25 @@ export interface EbookData {
   author: string; // e.g. "ZiyanCorp"
   modules: EbookModule[];
 }
+
+// ==========================================
+// MULTI-SOURCE MATERIAL INGESTION TYPES
+// ==========================================
+
+export type IngestionSourceType = 'youtube' | 'web' | 'pdf' | 'text' | 'research';
+
+export interface IngestedMaterial {
+  id: string;
+  sourceType: IngestionSourceType;
+  title: string;
+  sourceUrl?: string;
+  fileName?: string;
+  authorOrChannel?: string;
+  rawText: string;
+  wordCount: number;
+  thumbnailUrl?: string;
+  pageCount?: number;
+  dateAdded: string;
+  isExtractedFromCaptions?: boolean;
+}
+
