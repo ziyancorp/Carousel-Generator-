@@ -218,6 +218,40 @@ function extractYouTubeVideoId(input) {
   const match = cleanInput.match(regExp);
   return match ? match[1] : null;
 }
+function extractYouTubePlaylistId(input) {
+  const cleanInput = input.trim();
+  const match = cleanInput.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+async function fetchYouTubePlaylistInfo(playlistId) {
+  const playlistUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
+  const pageRes = await fetch(playlistUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+  });
+  if (!pageRes.ok) {
+    throw new Error(`Gagal membuka playlist YouTube (HTTP ${pageRes.status})`);
+  }
+  const html = await pageRes.text();
+  let title = "YouTube Playlist";
+  const titleMatch = html.match(/<title>(.*?) - YouTube<\/title>/i) || html.match(/<title>(.*?)<\/title>/i);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].replace(" - YouTube", "").trim();
+  }
+  const matches = Array.from(html.matchAll(/href="\/watch\?v=([a-zA-Z0-9_-]{11})/g));
+  const seen = /* @__PURE__ */ new Set();
+  const videoIds = [];
+  for (const m of matches) {
+    const vId = m[1];
+    if (vId && !seen.has(vId)) {
+      seen.add(vId);
+      videoIds.push(vId);
+    }
+  }
+  return { title, videoIds };
+}
 function decodeXmlEntities(str) {
   return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
 }
@@ -391,9 +425,58 @@ app.post("/api/ingest/youtube", async (req, res) => {
       res.status(400).json({ error: "YouTube URL or Video ID is required" });
       return;
     }
-    const videoId = extractYouTubeVideoId(url);
+    const cleanUrl = url.trim();
+    const playlistId = extractYouTubePlaylistId(cleanUrl);
+    if (playlistId && (cleanUrl.includes("playlist") || !extractYouTubeVideoId(cleanUrl))) {
+      try {
+        const playlistInfo = await fetchYouTubePlaylistInfo(playlistId);
+        const topVideoIds = playlistInfo.videoIds.slice(0, 5);
+        if (topVideoIds.length === 0) {
+          throw new Error("Playlist kosong atau tidak berisi video publik yang dapat diakses.");
+        }
+        const videoLessons = [];
+        for (let i = 0; i < topVideoIds.length; i++) {
+          const vId = topVideoIds[i];
+          try {
+            const vInfo = await fetchYouTubeVideoInfo(vId);
+            let lessonText = "";
+            try {
+              const vTranscript = await fetchYouTubeTranscriptViaService(vId);
+              lessonText = vTranscript.text;
+            } catch {
+              lessonText = `Video ${i + 1}: "${vInfo.title}" oleh ${vInfo.channelName}. Membahas materi dan konsep penting dalam rangkaian playlist ini.`;
+            }
+            videoLessons.push(`### Bab 0${i + 1}: ${vInfo.title}
+
+${lessonText.slice(0, 4e3)}`);
+          } catch {
+          }
+        }
+        const fullPlaylistText = `# KURIKULUM LENGKAP PLAYLIST: ${playlistInfo.title}
+
+` + videoLessons.join("\n\n---\n\n");
+        const words2 = fullPlaylistText.split(/\s+/).filter(Boolean);
+        return res.json({
+          success: true,
+          isPlaylist: true,
+          playlistId,
+          title: playlistInfo.title,
+          videoCount: playlistInfo.videoIds.length,
+          text: fullPlaylistText,
+          wordCount: words2.length,
+          sourceUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
+          thumbnailUrl: topVideoIds[0] ? `https://img.youtube.com/vi/${topVideoIds[0]}/hqdefault.jpg` : void 0
+        });
+      } catch (playlistErr) {
+        console.warn(`Playlist extraction error: ${playlistErr.message}`);
+        if (!extractYouTubeVideoId(cleanUrl)) {
+          return res.status(400).json({ error: playlistErr.message || "Gagal mengekstrak isi playlist YouTube" });
+        }
+      }
+    }
+    const videoId = extractYouTubeVideoId(cleanUrl);
     if (!videoId) {
-      res.status(400).json({ error: "Format link YouTube tidak valid. Silakan masukkan link yang valid (contoh: https://www.youtube.com/watch?v=... atau https://youtu.be/...)" });
+      res.status(400).json({ error: "Format link YouTube tidak valid. Silakan masukkan link video atau playlist yang valid." });
       return;
     }
     let transcriptResult;
@@ -494,39 +577,77 @@ app.post("/api/ingest/web", async (req, res) => {
     }
     let title = "Web Article";
     let fullText = "";
-    try {
-      const webRes = await fetch(cleanUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
-      });
-      if (webRes.ok) {
-        const html = await webRes.text();
-        const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/i);
-        const docTitle = html.match(/<title>(.*?)<\/title>/i);
-        if (ogTitle && ogTitle[1]) {
-          title = decodeXmlEntities(ogTitle[1]);
-        } else if (docTitle && docTitle[1]) {
-          title = decodeXmlEntities(docTitle[1]);
-        }
-        const cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "").replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "").replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, "").replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "").replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, "").replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, "").replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, "");
-        const textMatches = Array.from(cleaned.matchAll(/<(?:p|h1|h2|h3|h4|li|blockquote)[^>]*>(.*?)<\/(?:p|h1|h2|h3|h4|li|blockquote)>/gi));
-        const extractedParagraphs = [];
-        for (const match of textMatches) {
-          const stripped = match[1].replace(/<[^>]+>/g, "").trim();
-          const decoded = decodeXmlEntities(stripped);
-          if (decoded.length > 20) {
-            extractedParagraphs.push(decoded);
+    const docMatch = cleanUrl.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+    if (docMatch && docMatch[1]) {
+      const docId = docMatch[1];
+      try {
+        const gRes = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        });
+        if (gRes.ok) {
+          const docText = await gRes.text();
+          if (docText && docText.trim().length > 30) {
+            fullText = docText.trim();
+            title = `Dokumen Google Docs (${docId.slice(0, 8)})`;
           }
         }
-        fullText = extractedParagraphs.join("\n\n");
-        if (!fullText || fullText.length < 100) {
-          fullText = cleaned.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-        }
+      } catch (gErr) {
+        console.warn("Google Doc export error:", gErr.message);
       }
-    } catch (scrapeErr) {
-      console.warn(`Direct web scrape failed: ${scrapeErr.message}. Trying Jina Reader...`);
+    }
+    const sheetMatch = cleanUrl.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!fullText && sheetMatch && sheetMatch[1]) {
+      const sheetId = sheetMatch[1];
+      try {
+        const sRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        });
+        if (sRes.ok) {
+          const sheetText = await sRes.text();
+          if (sheetText && sheetText.trim().length > 20) {
+            fullText = sheetText.trim();
+            title = `Tabel Google Sheet (${sheetId.slice(0, 8)})`;
+          }
+        }
+      } catch (sErr) {
+        console.warn("Google Sheet export error:", sErr.message);
+      }
+    }
+    if (!fullText) {
+      try {
+        const webRes = await fetch(cleanUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+          }
+        });
+        if (webRes.ok) {
+          const html = await webRes.text();
+          const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/i);
+          const docTitle = html.match(/<title>(.*?)<\/title>/i);
+          if (ogTitle && ogTitle[1]) {
+            title = decodeXmlEntities(ogTitle[1]);
+          } else if (docTitle && docTitle[1]) {
+            title = decodeXmlEntities(docTitle[1]);
+          }
+          const cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "").replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "").replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, "").replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "").replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, "").replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, "").replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, "");
+          const textMatches = Array.from(cleaned.matchAll(/<(?:p|h1|h2|h3|h4|li|blockquote)[^>]*>(.*?)<\/(?:p|h1|h2|h3|h4|li|blockquote)>/gi));
+          const extractedParagraphs = [];
+          for (const match of textMatches) {
+            const stripped = match[1].replace(/<[^>]+>/g, "").trim();
+            const decoded = decodeXmlEntities(stripped);
+            if (decoded.length > 20) {
+              extractedParagraphs.push(decoded);
+            }
+          }
+          fullText = extractedParagraphs.join("\n\n");
+          if (!fullText || fullText.length < 100) {
+            fullText = cleaned.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          }
+        }
+      } catch (scrapeErr) {
+        console.warn(`Direct web scrape failed: ${scrapeErr.message}. Trying Jina Reader...`);
+      }
     }
     if (!fullText || fullText.length < 100) {
       try {
@@ -574,6 +695,29 @@ app.post("/api/ingest/pdf", async (req, res) => {
     }
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
     const buffer = Buffer.from(cleanBase64, "base64");
+    const safeFileName = fileName || "document.pdf";
+    if (safeFileName.toLowerCase().endsWith(".docx") || buffer[0] === 80 && buffer[1] === 75) {
+      try {
+        const JSZip = (await import("jszip")).default;
+        const zip = await JSZip.loadAsync(buffer);
+        const docFile = zip.file("word/document.xml");
+        if (docFile) {
+          const xml = await docFile.async("string");
+          const rawText2 = xml.replace(/<w:p[^>]*>/g, "\n").replace(/<w:br[^>]*>/g, "\n").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n\s*\n/g, "\n\n").trim();
+          const words2 = rawText2.split(/\s+/).filter(Boolean);
+          return res.json({
+            success: true,
+            title: safeFileName.replace(/\.docx$/i, ""),
+            fileName: safeFileName,
+            text: rawText2,
+            pageCount: Math.max(Math.ceil(words2.length / 300), 1),
+            wordCount: words2.length
+          });
+        }
+      } catch (docxErr) {
+        console.warn("Word DOCX parse attempt failed, trying PDF parser:", docxErr.message);
+      }
+    }
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: buffer });
     const textResult = await parser.getText();
@@ -582,21 +726,140 @@ app.post("/api/ingest/pdf", async (req, res) => {
     });
     const rawText = (textResult.text || "").trim();
     const words = rawText.split(/\s+/).filter(Boolean);
-    let docTitle = (fileName || "Uploaded PDF Document").replace(/\.pdf$/i, "");
+    let docTitle = safeFileName.replace(/\.pdf$/i, "");
     if (infoResult && infoResult.info?.Title) {
       docTitle = infoResult.info.Title;
     }
     res.json({
       success: true,
       title: docTitle,
-      fileName: fileName || "document.pdf",
+      fileName: safeFileName,
       text: rawText,
       pageCount: textResult.pages?.length || 1,
       wordCount: words.length
     });
   } catch (error) {
-    console.error("Error parsing PDF:", error);
-    res.status(500).json({ error: error.message || "Failed to parse PDF document" });
+    console.error("Error parsing document:", error);
+    res.status(500).json({ error: error.message || "Failed to parse PDF/DOCX document" });
+  }
+});
+app.post("/api/ingest/image", async (req, res) => {
+  try {
+    const { base64Data, fileName, mimeType = "image/png" } = req.body;
+    if (!base64Data || typeof base64Data !== "string") {
+      res.status(400).json({ error: "Base64 image data is required" });
+      return;
+    }
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) {
+      res.status(400).json({ error: "Gemini API Key diperlukan di server untuk menganalisis gambar/foto." });
+      return;
+    }
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    const prompt = `Analisis gambar ini dengan teliti. 
+TUGAS UTAMA:
+1. Ekstrak dan transkripsikan seluruh teks, diagram, infografis, dan catatan penting yang ada pada gambar ini.
+2. Jelaskan konsep materi, langkah-langkah, dan poin edukatif secara komprehensif dalam Bahasa Indonesia.
+3. Kembalikan strictly JSON format:
+{
+  "title": "Judul materi atau konsep yang ada di gambar",
+  "text": "Transkripsi lengkap materi, penjabaran konsep, dan penjelasan mendalam...",
+  "keyTakeaways": ["Poin 1", "Poin 2", "Poin 3"]
+}`;
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType,
+                data: cleanBase64
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+    const rawText = response.text || "{}";
+    const parsed = sanitizeAndParseJSON(rawText);
+    const fullText = parsed.text || "Gambar berhasil dianalisis.";
+    const words = fullText.split(/\s+/).filter(Boolean);
+    res.json({
+      success: true,
+      title: parsed.title || fileName || "Materi dari Foto / Infografis",
+      fileName: fileName || "image.png",
+      text: fullText,
+      keyTakeaways: parsed.keyTakeaways || [],
+      wordCount: words.length,
+      thumbnailUrl: `data:${mimeType};base64,${cleanBase64.slice(0, 5e3)}`
+    });
+  } catch (error) {
+    console.error("Error analyzing image:", error);
+    res.status(500).json({ error: error.message || "Failed to analyze image" });
+  }
+});
+app.post("/api/research-topic", async (req, res) => {
+  try {
+    const { topic, focus = "Panduan Lengkap & Aplikatif", language = "Indonesian", provider = "xkiro", apiKey, model, baseUrl } = req.body;
+    if (!topic || typeof topic !== "string" || topic.trim().length < 3) {
+      res.status(400).json({ error: "Topik riset diperlukan (minimal 3 karakter)" });
+      return;
+    }
+    const systemPrompt = `Kamu adalah Chief Research Officer & Master Educator kelas dunia.
+TUGAS UTAMA:
+Lakukan riset mendalam dan susun naskah materi edukatif (Source Material) yang sangat kaya data, berbobot, terstruktur rapi, dan siap diolah menjadi bahan baku E-Book ataupun Carousel microblog bernilai tinggi.
+Tulis dalam ${language}.
+
+Format JSON wajib:
+{
+  "title": "Judul Komprehensif (4-8 kata)",
+  "overview": "Ringkasan eksekutif masalah & solusi utama...",
+  "text": "Naskah materi riset lengkap (minimal 600-1200 kata), terbagi dalam beberapa sub-bab dengan heading Markdown (###), poin-poin data, studi kasus nyata, langkah implementasi praktis, dan tips ahli...",
+  "keyTakeaways": [
+    "Poin kunci 1",
+    "Poin kunci 2",
+    "Poin kunci 3",
+    "Poin kunci 4"
+  ]
+}`;
+    const userPrompt = `TOPIK YANG HARUS DIRIKET:
+"${topic.trim()}"
+FOKUS PEMBAHASAN: ${focus}
+BAHASA: ${language}
+
+Lakukan riset komprehensif sekarang dan berikan materi sumber terlengkap dalam format JSON.`;
+    const rawText = await callUniversalAi({
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      systemPrompt,
+      userPrompt,
+      responseMimeType: "application/json"
+    });
+    const parsed = sanitizeAndParseJSON(rawText);
+    const contentText = parsed.text || `${parsed.overview || ""}
+
+${(parsed.keyTakeaways || []).join("\n")}`;
+    const words = contentText.split(/\s+/).filter(Boolean);
+    res.json({
+      success: true,
+      title: parsed.title || topic.trim(),
+      overview: parsed.overview || "",
+      text: contentText,
+      keyTakeaways: parsed.keyTakeaways || [],
+      wordCount: words.length
+    });
+  } catch (error) {
+    console.error("Error in research-topic:", error);
+    res.status(500).json({ error: error.message || "Failed to conduct AI research" });
   }
 });
 app.get("/api/health", (req, res) => {

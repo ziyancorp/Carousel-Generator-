@@ -76,13 +76,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           <p className="text-[10px] text-gray-400 hidden lg:block">AI Microblog & E-Book Generator</p>
         </div>
 
-        {/* Tab Switcher: Carousel Studio vs E-Book Studio */}
+        {/* Tab Switcher: Carousel Studio (Pipeline A) vs E-Book Studio (Pipeline B) */}
         <nav aria-label="Tampilan Mode" className={`flex items-center p-1 rounded-xl border ${
           isDark ? 'bg-[#18181c] border-[#2d2d35]' : 'bg-gray-100 border-gray-300'
         }`}>
           <button
             type="button"
             onClick={() => onTabChange('carousel')}
+            title="Pipeline A: Carousel Cepat (Microblog) langsung dari materi"
             className={`min-h-[36px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
               activeTab === 'carousel'
                 ? 'bg-blue-600 text-white shadow-sm'
@@ -90,7 +91,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Carousel</span>
+            <span className="hidden sm:inline">⚡ Carousel Cepat</span>
+            <span className="sm:hidden">⚡ Carousel</span>
             <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
               activeTab === 'carousel' ? 'bg-blue-700 text-white' : 'bg-gray-700/30 text-gray-400'
             }`}>
@@ -101,6 +103,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('ebook')}
+            title="Pipeline B: E-Book Studio & Promo Kit (5 Desain, Format Interaktif & Siap Jual)"
             className={`min-h-[36px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
               activeTab === 'ebook'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
@@ -108,11 +111,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">E-Book</span>
+            <span className="hidden sm:inline">📚 E-Book Studio</span>
+            <span className="sm:hidden">📚 E-Book</span>
             <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
               activeTab === 'ebook' ? 'bg-indigo-900/60 text-indigo-200' : 'bg-amber-500/20 text-amber-400'
             }`}>
-              PDF
+              PROMO KIT
             </span>
           </button>
         </nav>

@@ -261,6 +261,7 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
 // MULTI-SOURCE INGESTION HELPERS
 // ----------------------------------------------------
 
+// @ts-ignore
 import { YoutubeTranscript } from 'youtube-transcript';
 
 // ----------------------------------------------------
@@ -275,6 +276,47 @@ function extractYouTubeVideoId(input: string): string | null {
   const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
   const match = cleanInput.match(regExp);
   return match ? match[1] : null;
+}
+
+function extractYouTubePlaylistId(input: string): string | null {
+  const cleanInput = input.trim();
+  const match = cleanInput.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+
+async function fetchYouTubePlaylistInfo(playlistId: string): Promise<{ title: string; videoIds: string[] }> {
+  const playlistUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
+  const pageRes = await fetch(playlistUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+  });
+
+  if (!pageRes.ok) {
+    throw new Error(`Gagal membuka playlist YouTube (HTTP ${pageRes.status})`);
+  }
+
+  const html = await pageRes.text();
+  let title = 'YouTube Playlist';
+  const titleMatch = html.match(/<title>(.*?) - YouTube<\/title>/i) || html.match(/<title>(.*?)<\/title>/i);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].replace(' - YouTube', '').trim();
+  }
+
+  // Extract unique video IDs from playlist page
+  const matches = Array.from(html.matchAll(/href="\/watch\?v=([a-zA-Z0-9_-]{11})/g));
+  const seen = new Set<string>();
+  const videoIds: string[] = [];
+  for (const m of matches) {
+    const vId = m[1];
+    if (vId && !seen.has(vId)) {
+      seen.add(vId);
+      videoIds.push(vId);
+    }
+  }
+
+  return { title, videoIds };
 }
 
 function decodeXmlEntities(str: string): string {
@@ -496,7 +538,7 @@ async function fetchYouTubeTranscriptViaService(videoId: string): Promise<{ titl
   throw new Error('Video YouTube ini tidak menyediakan subtitle atau closed-caption (CC) publik yang dapat diekstrak.');
 }
 
-// Ingest YouTube Transcript endpoint
+// Ingest YouTube Transcript / Playlist endpoint
 app.post('/api/ingest/youtube', async (req, res) => {
   try {
     const { url, apiKey, provider, model } = req.body;
@@ -505,9 +547,63 @@ app.post('/api/ingest/youtube', async (req, res) => {
       return;
     }
 
-    const videoId = extractYouTubeVideoId(url);
+    const cleanUrl = url.trim();
+
+    // 1. Check if URL is a YouTube Playlist
+    const playlistId = extractYouTubePlaylistId(cleanUrl);
+    if (playlistId && (cleanUrl.includes('playlist') || !extractYouTubeVideoId(cleanUrl))) {
+      try {
+        const playlistInfo = await fetchYouTubePlaylistInfo(playlistId);
+        const topVideoIds = playlistInfo.videoIds.slice(0, 5); // Take top 5 videos in playlist
+
+        if (topVideoIds.length === 0) {
+          throw new Error('Playlist kosong atau tidak berisi video publik yang dapat diakses.');
+        }
+
+        const videoLessons: string[] = [];
+        for (let i = 0; i < topVideoIds.length; i++) {
+          const vId = topVideoIds[i];
+          try {
+            const vInfo = await fetchYouTubeVideoInfo(vId);
+            let lessonText = '';
+            try {
+              const vTranscript = await fetchYouTubeTranscriptViaService(vId);
+              lessonText = vTranscript.text;
+            } catch {
+              lessonText = `Video ${i + 1}: "${vInfo.title}" oleh ${vInfo.channelName}. Membahas materi dan konsep penting dalam rangkaian playlist ini.`;
+            }
+            videoLessons.push(`### Bab 0${i + 1}: ${vInfo.title}\n\n${lessonText.slice(0, 4000)}`);
+          } catch {
+            // ignore single video error in playlist
+          }
+        }
+
+        const fullPlaylistText = `# KURIKULUM LENGKAP PLAYLIST: ${playlistInfo.title}\n\n` + videoLessons.join('\n\n---\n\n');
+        const words = fullPlaylistText.split(/\s+/).filter(Boolean);
+
+        return res.json({
+          success: true,
+          isPlaylist: true,
+          playlistId,
+          title: playlistInfo.title,
+          videoCount: playlistInfo.videoIds.length,
+          text: fullPlaylistText,
+          wordCount: words.length,
+          sourceUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
+          thumbnailUrl: topVideoIds[0] ? `https://img.youtube.com/vi/${topVideoIds[0]}/hqdefault.jpg` : undefined,
+        });
+      } catch (playlistErr: any) {
+        console.warn(`Playlist extraction error: ${playlistErr.message}`);
+        // If playlist extraction failed and there is a videoId, fall through to single video
+        if (!extractYouTubeVideoId(cleanUrl)) {
+          return res.status(400).json({ error: playlistErr.message || 'Gagal mengekstrak isi playlist YouTube' });
+        }
+      }
+    }
+
+    const videoId = extractYouTubeVideoId(cleanUrl);
     if (!videoId) {
-      res.status(400).json({ error: 'Format link YouTube tidak valid. Silakan masukkan link yang valid (contoh: https://www.youtube.com/watch?v=... atau https://youtu.be/...)' });
+      res.status(400).json({ error: 'Format link YouTube tidak valid. Silakan masukkan link video atau playlist yang valid.' });
       return;
     }
 
@@ -618,13 +714,54 @@ app.post('/api/ingest/web', async (req, res) => {
     let title = 'Web Article';
     let fullText = '';
 
-    try {
-      const webRes = await fetch(cleanUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-      });
+    // 1. Check for Public Google Docs
+    const docMatch = cleanUrl.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+    if (docMatch && docMatch[1]) {
+      const docId = docMatch[1];
+      try {
+        const gRes = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        if (gRes.ok) {
+          const docText = await gRes.text();
+          if (docText && docText.trim().length > 30) {
+            fullText = docText.trim();
+            title = `Dokumen Google Docs (${docId.slice(0, 8)})`;
+          }
+        }
+      } catch (gErr: any) {
+        console.warn('Google Doc export error:', gErr.message);
+      }
+    }
+
+    // 2. Check for Public Google Sheets
+    const sheetMatch = cleanUrl.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!fullText && sheetMatch && sheetMatch[1]) {
+      const sheetId = sheetMatch[1];
+      try {
+        const sRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        if (sRes.ok) {
+          const sheetText = await sRes.text();
+          if (sheetText && sheetText.trim().length > 20) {
+            fullText = sheetText.trim();
+            title = `Tabel Google Sheet (${sheetId.slice(0, 8)})`;
+          }
+        }
+      } catch (sErr: any) {
+        console.warn('Google Sheet export error:', sErr.message);
+      }
+    }
+
+    if (!fullText) {
+      try {
+        const webRes = await fetch(cleanUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+        });
 
       if (webRes.ok) {
         const html = await webRes.text();
@@ -667,6 +804,7 @@ app.post('/api/ingest/web', async (req, res) => {
     } catch (scrapeErr: any) {
       console.warn(`Direct web scrape failed: ${scrapeErr.message}. Trying Jina Reader...`);
     }
+  }
 
     // High-reliability fallback: Jina Reader API
     if (!fullText || fullText.length < 100) {
@@ -710,7 +848,7 @@ app.post('/api/ingest/web', async (req, res) => {
   }
 });
 
-// Ingest PDF / Document endpoint
+// Ingest PDF & Word (.docx) Document endpoint
 app.post('/api/ingest/pdf', async (req, res) => {
   try {
     const { base64Data, fileName } = req.body;
@@ -721,7 +859,45 @@ app.post('/api/ingest/pdf', async (req, res) => {
 
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(cleanBase64, 'base64');
+    const safeFileName = fileName || 'document.pdf';
 
+    // 1. Support Microsoft Word (.docx) parsing using JSZip
+    if (safeFileName.toLowerCase().endsWith('.docx') || (buffer[0] === 0x50 && buffer[1] === 0x4b)) {
+      try {
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(buffer);
+        const docFile = zip.file('word/document.xml');
+        if (docFile) {
+          const xml = await docFile.async('string');
+          const rawText = xml
+            .replace(/<w:p[^>]*>/g, '\n')
+            .replace(/<w:br[^>]*>/g, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\n\s*\n/g, '\n\n')
+            .trim();
+
+          const words = rawText.split(/\s+/).filter(Boolean);
+          return res.json({
+            success: true,
+            title: safeFileName.replace(/\.docx$/i, ''),
+            fileName: safeFileName,
+            text: rawText,
+            pageCount: Math.max(Math.ceil(words.length / 300), 1),
+            wordCount: words.length,
+          });
+        }
+      } catch (docxErr: any) {
+        console.warn('Word DOCX parse attempt failed, trying PDF parser:', docxErr.message);
+      }
+    }
+
+    // 2. PDF Document parsing
+    // @ts-ignore
     const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     const textResult = await parser.getText();
@@ -731,7 +907,7 @@ app.post('/api/ingest/pdf', async (req, res) => {
     const rawText = (textResult.text || '').trim();
     const words = rawText.split(/\s+/).filter(Boolean);
 
-    let docTitle = (fileName || 'Uploaded PDF Document').replace(/\.pdf$/i, '');
+    let docTitle = safeFileName.replace(/\.pdf$/i, '');
     if (infoResult && (infoResult as any).info?.Title) {
       docTitle = (infoResult as any).info.Title;
     }
@@ -739,14 +915,142 @@ app.post('/api/ingest/pdf', async (req, res) => {
     res.json({
       success: true,
       title: docTitle,
-      fileName: fileName || 'document.pdf',
+      fileName: safeFileName,
       text: rawText,
       pageCount: textResult.pages?.length || 1,
       wordCount: words.length,
     });
   } catch (error: any) {
-    console.error('Error parsing PDF:', error);
-    res.status(500).json({ error: error.message || 'Failed to parse PDF document' });
+    console.error('Error parsing document:', error);
+    res.status(500).json({ error: error.message || 'Failed to parse PDF/DOCX document' });
+  }
+});
+
+// Ingest Image / Screenshot OCR endpoint (Multimodal Gemini)
+app.post('/api/ingest/image', async (req, res) => {
+  try {
+    const { base64Data, fileName, mimeType = 'image/png' } = req.body;
+    if (!base64Data || typeof base64Data !== 'string') {
+      res.status(400).json({ error: 'Base64 image data is required' });
+      return;
+    }
+
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    if (!geminiKey) {
+      res.status(400).json({ error: 'Gemini API Key diperlukan di server untuk menganalisis gambar/foto.' });
+      return;
+    }
+
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    const prompt = `Analisis gambar ini dengan teliti. 
+TUGAS UTAMA:
+1. Ekstrak dan transkripsikan seluruh teks, diagram, infografis, dan catatan penting yang ada pada gambar ini.
+2. Jelaskan konsep materi, langkah-langkah, dan poin edukatif secara komprehensif dalam Bahasa Indonesia.
+3. Kembalikan strictly JSON format:
+{
+  "title": "Judul materi atau konsep yang ada di gambar",
+  "text": "Transkripsi lengkap materi, penjabaran konsep, dan penjelasan mendalam...",
+  "keyTakeaways": ["Poin 1", "Poin 2", "Poin 3"]
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType,
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const rawText = response.text || '{}';
+    const parsed = sanitizeAndParseJSON(rawText);
+
+    const fullText = parsed.text || 'Gambar berhasil dianalisis.';
+    const words = fullText.split(/\s+/).filter(Boolean);
+
+    res.json({
+      success: true,
+      title: parsed.title || fileName || 'Materi dari Foto / Infografis',
+      fileName: fileName || 'image.png',
+      text: fullText,
+      keyTakeaways: parsed.keyTakeaways || [],
+      wordCount: words.length,
+      thumbnailUrl: `data:${mimeType};base64,${cleanBase64.slice(0, 5000)}`,
+    });
+  } catch (error: any) {
+    console.error('Error analyzing image:', error);
+    res.status(500).json({ error: error.message || 'Failed to analyze image' });
+  }
+});
+
+// Conduct AI Deep Research on any topic / question (NotebookLM Deep Research)
+app.post('/api/research-topic', async (req, res) => {
+  try {
+    const { topic, focus = 'Panduan Lengkap & Aplikatif', language = 'Indonesian', provider = 'xkiro', apiKey, model, baseUrl } = req.body;
+    if (!topic || typeof topic !== 'string' || topic.trim().length < 3) {
+      res.status(400).json({ error: 'Topik riset diperlukan (minimal 3 karakter)' });
+      return;
+    }
+
+    const systemPrompt = `Kamu adalah Chief Research Officer & Master Educator kelas dunia.
+TUGAS UTAMA:
+Lakukan riset mendalam dan susun naskah materi edukatif (Source Material) yang sangat kaya data, berbobot, terstruktur rapi, dan siap diolah menjadi bahan baku E-Book ataupun Carousel microblog bernilai tinggi.
+Tulis dalam ${language}.
+
+Format JSON wajib:
+{
+  "title": "Judul Komprehensif (4-8 kata)",
+  "overview": "Ringkasan eksekutif masalah & solusi utama...",
+  "text": "Naskah materi riset lengkap (minimal 600-1200 kata), terbagi dalam beberapa sub-bab dengan heading Markdown (###), poin-poin data, studi kasus nyata, langkah implementasi praktis, dan tips ahli...",
+  "keyTakeaways": [
+    "Poin kunci 1",
+    "Poin kunci 2",
+    "Poin kunci 3",
+    "Poin kunci 4"
+  ]
+}`;
+
+    const userPrompt = `TOPIK YANG HARUS DIRIKET:\n"${topic.trim()}"\nFOKUS PEMBAHASAN: ${focus}\nBAHASA: ${language}\n\nLakukan riset komprehensif sekarang dan berikan materi sumber terlengkap dalam format JSON.`;
+
+    const rawText = await callUniversalAi({
+      provider,
+      apiKey,
+      model,
+      baseUrl,
+      systemPrompt,
+      userPrompt,
+      responseMimeType: 'application/json',
+    });
+
+    const parsed = sanitizeAndParseJSON(rawText);
+    const contentText = parsed.text || `${parsed.overview || ''}\n\n${(parsed.keyTakeaways || []).join('\n')}`;
+    const words = contentText.split(/\s+/).filter(Boolean);
+
+    res.json({
+      success: true,
+      title: parsed.title || topic.trim(),
+      overview: parsed.overview || '',
+      text: contentText,
+      keyTakeaways: parsed.keyTakeaways || [],
+      wordCount: words.length,
+    });
+  } catch (error: any) {
+    console.error('Error in research-topic:', error);
+    res.status(500).json({ error: error.message || 'Failed to conduct AI research' });
   }
 });
 

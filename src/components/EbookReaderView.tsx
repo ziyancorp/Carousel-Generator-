@@ -64,6 +64,35 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
   const [ebookTheme, setEbookTheme] = useState<'light' | 'dark'>(isDarkUi ? 'dark' : 'light');
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
   const [isMarketingModalOpen, setIsMarketingModalOpen] = useState(false);
+  const [checkedChecklist, setCheckedChecklist] = useState<Record<string, boolean>>({});
+
+  const toggleChecklist = (key: string) => {
+    setCheckedChecklist((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const getModuleStats = (mod?: EbookModule) => {
+    if (!mod) return { words: 0, minutes: 1 };
+    let text = (mod.title || '') + ' ' + (mod.description || '');
+    if (mod.introCard) {
+      text += ' ' + (mod.introCard.title || '') + ' ' + (mod.introCard.body || '');
+      if (mod.introCard.checklist) text += ' ' + mod.introCard.checklist.join(' ');
+    }
+    if (mod.steps) {
+      text += ' ' + mod.steps.map((s) => s.title + ' ' + s.text).join(' ');
+    }
+    if (mod.prompts) {
+      text += ' ' + mod.prompts.map((p) => p.tag + ' ' + p.content).join(' ');
+    }
+    if (mod.callouts) {
+      text += ' ' + mod.callouts.map((c) => c.title + ' ' + c.body).join(' ');
+    }
+    const words = text.trim().split(/\s+/).filter(Boolean).length;
+    const minutes = Math.max(1, Math.ceil(words / 140));
+    return { words, minutes };
+  };
 
   const activeVariant =
     DESIGN_VARIANTS.find((v) => v.id === (currentEbook.variantId || 'variant-1-tech')) ||
@@ -315,11 +344,11 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
               type="button"
               disabled={isDistillingCarousel}
               onClick={handleDistillToCarouselDeck}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-              title="Ringkas buku panduan ini menjadi slide carousel microblog"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/40 hover:to-teal-600/40 text-emerald-300 border border-emerald-500/40 transition flex items-center gap-1.5 shrink-0 disabled:opacity-50 shadow-sm"
+              title="Ringkas buku panduan ini menjadi slide carousel promosi (Hook + Teaser + CTA)"
             >
-              {isDistillingCarousel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
-              <span>{isDistillingCarousel ? 'Meringkas Slide...' : 'Distill ke Carousel'}</span>
+              {isDistillingCarousel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>{isDistillingCarousel ? 'Menyusun Slide...' : '⚡ Generate Carousel Promosi'}</span>
             </button>
           )}
 
@@ -517,9 +546,16 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
             }`}>
               {/* Module Header */}
               <div className="border-b border-gray-700/30 pb-5">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-400 px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20">
                     {activeModule.badge || `Modul ${activeModule.moduleNumber || 1}`}
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-400 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
+                    <span>⏱️</span>
+                    <span>~{getModuleStats(activeModule).minutes} Menit Baca</span>
+                  </span>
+                  <span className="text-[11px] font-mono text-gray-400 px-2 py-0.5 rounded-md bg-gray-500/10 border border-gray-500/20">
+                    {getModuleStats(activeModule).words} Kata
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black tracking-tight mt-1">{activeModule.title}</h2>
@@ -544,14 +580,37 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
                     {activeModule.introCard.body}
                   </p>
 
-                  {activeModule.introCard.checklist && (
-                    <div className="mt-3 pt-3 border-t border-gray-800 space-y-2">
-                      {activeModule.introCard.checklist.map((item, cIdx) => (
-                        <div key={cIdx} className="flex items-start gap-2.5 text-xs text-slate-300">
-                          <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          <span>{item}</span>
-                        </div>
-                      ))}
+                  {activeModule.introCard.checklist && activeModule.introCard.checklist.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-800/80 space-y-2">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                        <span>Checklist Aksi Mandiri</span>
+                        <span className="text-[10px] text-gray-500">Klik untuk centang</span>
+                      </div>
+                      {activeModule.introCard.checklist.map((item, cIdx) => {
+                        const checkKey = `${activeModule.id}-check-${cIdx}`;
+                        const isChecked = Boolean(checkedChecklist[checkKey]);
+                        return (
+                          <button
+                            key={cIdx}
+                            type="button"
+                            onClick={() => toggleChecklist(checkKey)}
+                            className={`w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer ${
+                              isChecked
+                                ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
+                                : 'bg-black/20 hover:bg-black/30 border-gray-800/60 text-slate-300'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded mt-0.5 flex items-center justify-center shrink-0 border transition ${
+                              isChecked ? 'bg-emerald-500 border-emerald-400 text-white' : 'border-gray-600 bg-black/40'
+                            }`}>
+                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                            <span className={`text-xs ${isChecked ? 'line-through opacity-80 text-emerald-300' : ''}`}>
+                              {item}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -635,6 +694,17 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
                   ))}
                 </div>
               )}
+
+              {/* Golden Takeaway / Intisari Modul Card */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-yellow-500/10 to-orange-500/10 border border-amber-500/30 space-y-2">
+                <div className="flex items-center gap-2 text-amber-400 font-extrabold text-xs tracking-wider uppercase">
+                  <span className="text-base">🎯</span>
+                  <span>Golden Takeaway (Intisari Penting Modul)</span>
+                </div>
+                <p className="text-xs sm:text-sm font-medium text-amber-100/90 leading-relaxed italic">
+                  "{activeModule.introCard?.subtitle || activeModule.description || activeModule.title}: Kuasai dan praktekkan prinsip ini secara konsisten untuk membangun produk digital dan konten bernilai tinggi."
+                </p>
+              </div>
             </div>
           ) : (
             <div className="p-12 text-center border rounded-2xl border-dashed border-slate-700 space-y-4">

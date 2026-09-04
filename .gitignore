@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 .vercel
+.xkiro_key
+*.png
+*.py
+test_*.json

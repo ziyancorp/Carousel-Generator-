@@ -672,24 +672,116 @@ Return strictly JSON matching:
   }
   userPrompt += '\nReturn strictly JSON now.';
 
-  if (apiKeyConfig?.apiKey && apiKeyConfig.apiKey.trim().length > 5) {
-    try {
-      const raw = await callClientDirectAi({ apiKeyConfig, systemPrompt, userPrompt });
-      const parsed = sanitizeAndParseJSON(raw);
-      if (parsed.ebook && Array.isArray(parsed.ebook.modules)) {
-        return { ebook: parsed.ebook, isFallback: false };
-      }
-    } catch (err: any) {
-      console.warn('Direct AI for E-book failed, using fallback:', err.message);
-      return { ebook: getFallbackEbook(topic, count, language, authorName), isFallback: true, error: err.message };
+  const configToUse: ApiKeyConfig = (apiKeyConfig?.apiKey && apiKeyConfig.apiKey.trim().length > 5)
+    ? apiKeyConfig
+    : {
+        provider: 'xkiro',
+        apiKey: DEFAULT_XKIRO_KEY,
+        model: DEFAULT_XKIRO_MODEL,
+        baseUrl: DEFAULT_XKIRO_BASE_URL,
+      };
+
+  try {
+    const raw = await callClientDirectAi({ apiKeyConfig: configToUse, systemPrompt, userPrompt });
+    const parsed = sanitizeAndParseJSON(raw);
+    if (parsed.ebook && Array.isArray(parsed.ebook.modules)) {
+      return { ebook: parsed.ebook, isFallback: false };
     }
+  } catch (err: any) {
+    console.warn('Direct AI for E-book failed, using fallback:', err.message);
+    return { ebook: getFallbackEbook(topic, count, language, authorName), isFallback: true, error: err.message };
   }
 
   return {
     ebook: getFallbackEbook(topic, count, language, authorName),
     isFallback: true,
-    error: 'API Key belum diisi. Menampilkan template standar.',
+    error: 'Menggunakan template materi terstruktur.',
   };
+}
+
+// Conduct AI Deep Research on any topic / question (NotebookLM Deep Research)
+export async function researchTopicAI(params: {
+  topic: string;
+  focus?: string;
+  language?: string;
+  apiKeyConfig?: ApiKeyConfig;
+}): Promise<{ title: string; text: string; overview: string; keyTakeaways: string[]; wordCount: number; error?: string }> {
+  const { topic, focus = 'Panduan Lengkap & Aplikatif', language = 'Indonesian', apiKeyConfig } = params;
+
+  // 1. Try server endpoint first
+  try {
+    const res = await fetch('/api/research-topic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic,
+        focus,
+        language,
+        provider: apiKeyConfig?.provider || 'xkiro',
+        apiKey: apiKeyConfig?.apiKey || DEFAULT_XKIRO_KEY,
+        model: apiKeyConfig?.model || DEFAULT_XKIRO_MODEL,
+        baseUrl: apiKeyConfig?.baseUrl || DEFAULT_XKIRO_BASE_URL,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.text) {
+        return {
+          title: data.title || topic,
+          text: data.text,
+          overview: data.overview || '',
+          keyTakeaways: data.keyTakeaways || [],
+          wordCount: data.wordCount || data.text.split(/\s+/).filter(Boolean).length,
+        };
+      }
+    }
+  } catch {
+    // proceed to direct client AI
+  }
+
+  // 2. Direct client AI
+  const configToUse: ApiKeyConfig = (apiKeyConfig?.apiKey && apiKeyConfig.apiKey.trim().length > 5)
+    ? apiKeyConfig
+    : {
+        provider: 'xkiro',
+        apiKey: DEFAULT_XKIRO_KEY,
+        model: DEFAULT_XKIRO_MODEL,
+        baseUrl: DEFAULT_XKIRO_BASE_URL,
+      };
+
+  const systemPrompt = `Kamu adalah Chief Research Officer & Master Educator kelas dunia.
+TUGAS UTAMA: Lakukan riset mendalam dan susun naskah materi sumber (Source Material) terstruktur, kaya data, studi kasus, dan langkah praktis (600-1200 kata) dalam ${language}.
+Format JSON:
+{
+  "title": "Judul Komprehensif",
+  "overview": "Ringkasan eksekutif...",
+  "text": "Naskah materi riset lengkap terbagi dalam sub-bab dengan heading Markdown (###), poin data, dan langkah...",
+  "keyTakeaways": ["Poin 1", "Poin 2", "Poin 3"]
+}`;
+
+  const userPrompt = `Riset topik: "${topic}"\nFokus: ${focus}\nBahasa: ${language}\nKembalikan strictly JSON.`;
+
+  try {
+    const raw = await callClientDirectAi({ apiKeyConfig: configToUse, systemPrompt, userPrompt });
+    const parsed = sanitizeAndParseJSON(raw);
+    const text = parsed.text || `${parsed.overview || ''}\n\n${(parsed.keyTakeaways || []).join('\n')}`;
+    return {
+      title: parsed.title || topic,
+      overview: parsed.overview || '',
+      text,
+      keyTakeaways: parsed.keyTakeaways || [],
+      wordCount: text.split(/\s+/).filter(Boolean).length,
+    };
+  } catch (err: any) {
+    return {
+      title: topic,
+      overview: `Riset untuk topik: ${topic}`,
+      text: `# Panduan Komprehensif: ${topic}\n\nTopik ini membahas pilar-pilar penting untuk eksekusi nyata, manajemen strategi, dan implementasi langkah demi langkah.\n\n### 1. Fondasi & Pemahaman Awal\nMemahami konteks dan masalah utama yang dihadapi audiens.\n\n### 2. Metode Eksekusi Bertahap\nLangkah taktis yang dapat diterapkan secara langsung.\n\n### 3. Evaluasi & Optimasi Berkelanjutan\nMengukur efektivitas dan memperbesar dampak hasil.`,
+      keyTakeaways: [`Memahami konsep dasar ${topic}`, 'Menerapkan langkah eksekusi nyata', 'Mengoptimalkan hasil'],
+      wordCount: 70,
+      error: err.message,
+    };
+  }
 }
 
 // Distill E-Book to Carousel Slide Deck

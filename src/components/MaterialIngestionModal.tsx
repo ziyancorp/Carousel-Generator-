@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Youtube,
   Clipboard,
@@ -17,12 +17,14 @@ import {
   ArrowRight,
   ExternalLink,
   Palette,
-  Eye
+  Eye,
+  Search,
+  Image as ImageIcon
 } from 'lucide-react';
 import { IngestedMaterial, IngestionSourceType, ApiKeyConfig, EbookData, Slide, DesignVariantId } from '../types';
 import { VariantSelectorModal } from './VariantSelectorModal';
 import { DESIGN_VARIANTS } from '../data/designVariants';
-import { generateCarouselAI, generateEbookAI } from '../services/aiClient';
+import { generateCarouselAI, generateEbookAI, researchTopicAI } from '../services/aiClient';
 
 interface MaterialIngestionModalProps {
   isOpen: boolean;
@@ -53,6 +55,10 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
   const [customText, setCustomText] = useState('');
   const [customTopic, setCustomTopic] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [researchQuery, setResearchQuery] = useState('');
+  const [researchFocus, setResearchFocus] = useState('Panduan Lengkap & Aplikatif');
+  const [isResearching, setIsResearching] = useState(false);
 
   // Ingested Material State
   const [ingestedData, setIngestedData] = useState<IngestedMaterial | null>(null);
@@ -221,7 +227,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setIsIngesting(false);
   };
 
-  // 3. Upload & Parse PDF
+  // 3. Upload & Parse PDF / Word (.docx)
   const handleFileUpload = async (file: File) => {
     if (!file) return;
     setIsIngesting(true);
@@ -229,7 +235,10 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setSelectedFile(file);
 
     try {
-      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      const isDocx = file.name.toLowerCase().endsWith('.docx') || file.type.includes('word');
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+      if (isPdf || isDocx) {
         const reader = new FileReader();
         reader.onload = async () => {
           try {
@@ -245,17 +254,17 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
 
             const contentType = res.headers.get('content-type') || '';
             if (!contentType.includes('application/json')) {
-              throw new Error('Layanan pembaca PDF server tidak aktif. Silakan salin teks PDF ke tab "Tulis / Paste Naskah".');
+              throw new Error('Layanan pembaca dokumen server tidak aktif. Silakan salin teks ke tab "Tulis / Paste Naskah".');
             }
 
             const data = await res.json();
             if (!res.ok) {
-              throw new Error(data.error || 'Gagal membaca file PDF.');
+              throw new Error(data.error || 'Gagal membaca file dokumen.');
             }
 
             setIngestedData({
               id: `mat-${Date.now()}`,
-              sourceType: 'pdf',
+              sourceType: isDocx ? 'document' : 'pdf',
               title: data.title || file.name,
               fileName: file.name,
               pageCount: data.pageCount,
@@ -265,7 +274,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
             });
             setIsIngesting(false);
           } catch (pErr: any) {
-            setIngestError(pErr.message || 'Gagal membaca file PDF.');
+            setIngestError(pErr.message || 'Gagal membaca file dokumen.');
             setIsIngesting(false);
           }
         };
@@ -273,7 +282,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
         return;
       }
 
-      // Plain text, markdown, docx txt fallback
+      // Plain text, markdown fallback
       const reader = new FileReader();
       reader.onload = () => {
         const textContent = reader.result as string;
@@ -295,10 +304,104 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     }
   };
 
+  // 4. Upload & Parse Image / Screenshot / Infographics (OCR)
+  const handleImageUpload = async (file: File) => {
+    if (!file) return;
+    setIsIngesting(true);
+    setIngestError(null);
+    setSelectedImageFile(file);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        try {
+          const res = await fetch('/api/ingest/image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              base64Data,
+              fileName: file.name,
+              mimeType: file.type || 'image/png',
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            setIngestedData({
+              id: `mat-img-${Date.now()}`,
+              sourceType: 'image',
+              title: data.title || file.name,
+              fileName: file.name,
+              rawText: data.text,
+              wordCount: data.wordCount,
+              thumbnailUrl: base64Data,
+              dateAdded: new Date().toLocaleTimeString(),
+            });
+            setIsIngesting(false);
+            return;
+          }
+        } catch {
+          // fallback to client preview
+        }
+
+        // Fallback if image OCR server is unavailable
+        setIngestedData({
+          id: `mat-img-${Date.now()}`,
+          sourceType: 'image',
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          fileName: file.name,
+          rawText: `Catatan Gambar: "${file.name}".\n\nMateri visual berhasil dimuat. Anda dapat melengkapi naskah penjelasan atau poin penting di bawah ini sebelum membuat carousel/ebook.`,
+          wordCount: 20,
+          thumbnailUrl: base64Data,
+          dateAdded: new Date().toLocaleTimeString(),
+        });
+        setIsIngesting(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setIngestError(err.message || 'Gagal mengunggah gambar.');
+      setIsIngesting(false);
+    }
+  };
+
+  // 5. Conduct AI Deep Research (NotebookLM style)
+  const handleResearchTopic = async () => {
+    if (!researchQuery.trim()) {
+      setIngestError('Silakan masukkan topik atau pertanyaan yang ingin diriset.');
+      return;
+    }
+
+    setIsResearching(true);
+    setIngestError(null);
+
+    try {
+      const result = await researchTopicAI({
+        topic: researchQuery.trim(),
+        focus: researchFocus,
+        language,
+        apiKeyConfig,
+      });
+
+      setIngestedData({
+        id: `mat-res-${Date.now()}`,
+        sourceType: 'research',
+        title: result.title || researchQuery.trim(),
+        rawText: result.text,
+        wordCount: result.wordCount,
+        dateAdded: new Date().toLocaleTimeString(),
+      });
+    } catch (err: any) {
+      setIngestError(err.message || 'Terjadi kesalahan saat AI melakukan riset materi.');
+    } finally {
+      setIsResearching(false);
+    }
+  };
+
   const customTextWordCount = customText.trim() ? customText.trim().split(/\s+/).length : 0;
   const customTextCharCount = customText.length;
 
-  // 4. Ingest Raw Notes / Text
+  // 6. Ingest Raw Notes / Text
   const handleIngestText = () => {
     if (!customText.trim()) {
       setIngestError('Silakan masukkan teks atau catatan materi.');
@@ -332,6 +435,8 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setYoutubeUrl('');
     setWebUrl('');
     setSelectedFile(null);
+    setSelectedImageFile(null);
+    setResearchQuery('');
     setCustomText('');
     setCustomTopic('');
     setIngestError(null);
@@ -462,77 +567,104 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          {/* Source Tabs */}
+          {/* Source Tabs: 6 Multi-Source Channels */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">
-              1. Pilih Sumber Materi Anda
+              1. Pilih Sumber Materi Anda (NotebookLM Studio)
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               <button
                 type="button"
                 onClick={() => { setActiveSource('youtube'); setIngestError(null); }}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
                   activeSource === 'youtube'
                     ? 'bg-red-500/10 border-red-500/50 text-red-400 shadow-sm'
                     : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <Youtube className="w-4 h-4 text-red-500" />
-                <span>Link YouTube</span>
+                <Youtube className="w-3.5 h-3.5 text-red-500" />
+                <span className="truncate">YouTube / Playlist</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => { setActiveSource('web'); setIngestError(null); }}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
                   activeSource === 'web'
                     ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-sm'
                     : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <Globe className="w-4 h-4 text-blue-500" />
-                <span>Link Website</span>
+                <Globe className="w-3.5 h-3.5 text-blue-500" />
+                <span className="truncate">Web / Google Docs</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => { setActiveSource('pdf'); setIngestError(null); }}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
                   activeSource === 'pdf'
                     ? 'bg-amber-500/10 border-amber-500/50 text-amber-400 shadow-sm'
                     : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <FileUp className="w-4 h-4 text-amber-500" />
-                <span>Upload PDF / Doc</span>
+                <FileUp className="w-3.5 h-3.5 text-amber-500" />
+                <span className="truncate">PDF / Word DOCX</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveSource('image'); setIngestError(null); }}
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
+                  activeSource === 'image'
+                    ? 'bg-pink-500/10 border-pink-500/50 text-pink-400 shadow-sm'
+                    : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-pink-500" />
+                <span className="truncate">Foto / Infografis</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => { setActiveSource('text'); setIngestError(null); }}
-                className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
                   activeSource === 'text'
                     ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-sm'
                     : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <FileText className="w-4 h-4 text-emerald-500" />
-                <span>Teks / Catatan</span>
+                <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                <span className="truncate">Tulis Naskah Bebas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveSource('research'); setIngestError(null); }}
+                className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border text-xs font-semibold transition ${
+                  activeSource === 'research'
+                    ? 'bg-purple-500/10 border-purple-500/50 text-purple-400 shadow-sm'
+                    : isDarkUi ? 'bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Search className="w-3.5 h-3.5 text-purple-400" />
+                <span className="truncate">🔍 Riset Topik AI</span>
               </button>
             </div>
           </div>
 
           {/* Active Input Panel */}
           <div className={`p-4 rounded-xl border ${isDarkUi ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            {/* 1. YouTube Panel */}
             {activeSource === 'youtube' && (
               <div className="space-y-3">
                 <label className="block text-xs font-medium text-slate-300">
-                  Masukkan Link Video YouTube (Otomatis mengekstrak transkrip lengkap):
+                  Masukkan Link Video atau Playlist YouTube (Otomatis mengekstrak transkrip & kurikulum):
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="url"
-                    placeholder="https://www.youtube.com/watch?v=... atau https://youtu.be/..."
+                    placeholder="https://www.youtube.com/watch?v=... atau https://www.youtube.com/playlist?list=..."
                     value={youtubeUrl}
                     onChange={(e) => setYoutubeUrl(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleFetchYoutube()}
@@ -547,25 +679,26 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 shrink-0"
                   >
                     {isIngesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Youtube className="w-4 h-4" />}
-                    <span>{isIngesting ? 'Mengekstrak...' : 'Tarik Transkrip'}</span>
+                    <span>{isIngesting ? 'Mengekstrak...' : 'Tarik Materi'}</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 font-mono border border-red-500/20">youtube-transcript.ai MCP</span>
-                  <span>Mengekstrak subtitle percakapan otomatis & manual secara instan dengan proxy anti-blokir.</span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 font-mono border border-red-500/20">Multi-Strategy Engine</span>
+                  <span>Mendukung link video tunggal, YouTube Shorts, maupun satu Playlist tutorial lengkap.</span>
                 </p>
               </div>
             )}
 
+            {/* 2. Web & Google Docs Panel */}
             {activeSource === 'web' && (
               <div className="space-y-3">
                 <label className="block text-xs font-medium text-slate-300">
-                  Masukkan Link Website / Artikel Berita / Blog:
+                  Masukkan Link Website, Artikel Berita, Blog, atau Google Docs / Sheets:
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="url"
-                    placeholder="https://medium.com/... atau https://blog.example.com/..."
+                    placeholder="https://medium.com/... atau https://docs.google.com/document/d/..."
                     value={webUrl}
                     onChange={(e) => setWebUrl(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleFetchWeb()}
@@ -580,24 +713,25 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 shrink-0"
                   >
                     {isIngesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-                    <span>{isIngesting ? 'Mengambil...' : 'Ekstrak Artikel'}</span>
+                    <span>{isIngesting ? 'Mengambil...' : 'Ekstrak Konten'}</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  AI akan menyaring iklan, menu navigasi, dan footer untuk mengambil materi inti artikel.
+                  Otomatis mengekstrak teks bersih tanpa iklan, termasuk Google Docs publik yang dibagikan dengan link.
                 </p>
               </div>
             )}
 
+            {/* 3. PDF & Word DOCX Panel */}
             {activeSource === 'pdf' && (
               <div className="space-y-3">
                 <label className="block text-xs font-medium text-slate-300">
-                  Unggah Dokumen PDF, Buku, E-Book, atau Teks (.pdf, .txt, .md):
+                  Unggah Dokumen PDF, Word (.docx), E-Book, atau Teks (.txt, .md):
                 </label>
                 <div className="border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer border-slate-700 hover:border-amber-500/60 bg-slate-800/30">
                   <input
                     type="file"
-                    accept=".pdf,.txt,.md"
+                    accept=".pdf,.docx,.txt,.md"
                     id="file-ingest-input"
                     className="hidden"
                     onChange={(e) => {
@@ -608,31 +742,68 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                   <label htmlFor="file-ingest-input" className="cursor-pointer flex flex-col items-center gap-2">
                     <FileUp className="w-8 h-8 text-amber-400" />
                     <span className="text-xs font-bold text-slate-200">
-                      {selectedFile ? selectedFile.name : 'Klik untuk Pilih File PDF atau Seret ke Sini'}
+                      {selectedFile ? selectedFile.name : 'Klik untuk Pilih File PDF / Word (.docx) atau Seret ke Sini'}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      Mendukung file hingga puluhan halaman
+                      Mendukung PDF dan Microsoft Word (.docx) hingga puluhan halaman
                     </span>
                   </label>
                 </div>
                 {isIngesting && (
                   <div className="flex items-center justify-center gap-2 text-xs text-amber-400 py-1">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Mengekstrak isi teks dokumen...</span>
+                    <span>Mengekstrak isi teks dokumen secara presisi...</span>
                   </div>
                 )}
               </div>
             )}
 
+            {/* 4. Image / Infographics Panel */}
+            {activeSource === 'image' && (
+              <div className="space-y-3">
+                <label className="block text-xs font-medium text-slate-300">
+                  Unggah Foto, Screenshot Artikel, Slide, atau Gambar Infografis:
+                </label>
+                <div className="border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer border-slate-700 hover:border-pink-500/60 bg-slate-800/30">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="image-ingest-input"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file);
+                    }}
+                  />
+                  <label htmlFor="image-ingest-input" className="cursor-pointer flex flex-col items-center gap-2">
+                    <ImageIcon className="w-8 h-8 text-pink-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      {selectedImageFile ? selectedImageFile.name : 'Pilih Foto / Screenshot Materi (PNG, JPG, WEBP)'}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      AI Multimodal membaca teks, diagram alur, dan konsep dari gambar secara otomatis
+                    </span>
+                  </label>
+                </div>
+                {isIngesting && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-pink-400 py-1">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>AI sedang membaca dan mengekstrak materi dari gambar...</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 5. Tulis Naskah Bebas Panel */}
             {activeSource === 'text' && (
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Judul / Topik Materi:
+                    Judul / Topik Materi (Opsional):
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: Berita Terbaru / 5 Strategi Bisnis & AI Paling Dicari 2026"
+                    placeholder="Contoh: 5 Strategi Bisnis & AI Paling Dicari 2026 (Bisa dikosongkan)"
                     value={customTopic}
                     onChange={(e) => setCustomTopic(e.target.value)}
                     className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-2.5 ${
@@ -643,11 +814,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-medium text-slate-300">
-                      Tulis atau Tempel Catatan / Naskah Panjang:
+                      Tulis atau Tempel Catatan / Naskah Panjang (Tanpa Batas Karakter):
                     </label>
                     <div className="flex items-center gap-2.5">
                       <span className="text-[11px] text-slate-400 font-mono">
-                        {customTextWordCount} kata • {customTextCharCount} karakter
+                        {customTextWordCount} kata • {customTextCharCount} karakter • ~{Math.max(Math.ceil(customTextWordCount / 200), 1)} mnt baca
                       </span>
                       <button
                         type="button"
@@ -661,11 +832,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     </div>
                   </div>
                   <textarea
-                    rows={8}
-                    placeholder="Tempel artikel berita lengkap (Detik, Kompas, Medium), draf konten, transkrip rekaman suara, atau catatan panjang Anda di sini... (Kotak ini sangat luas dan siap menampung ribuan kata)"
+                    rows={9}
+                    placeholder="Tempel artikel berita lengkap (Detik, Kompas, Medium), transkrip rekaman podcast, kurikulum kursus, draf bab buku, atau catatan panjang Anda di sini...&#10;&#10;Kotak narasi ini sangat luas dan nyaman menampung puluhan ribu kata tanpa terpotong!"
                     value={customText}
                     onChange={(e) => setCustomText(e.target.value)}
-                    className={`w-full min-h-[220px] max-h-[380px] px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans leading-relaxed ${
+                    className={`w-full min-h-[240px] max-h-[400px] px-3.5 py-3 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans leading-relaxed ${
                       isDarkUi ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
@@ -683,6 +854,65 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     <span>Gunakan Naskah Ini Sebagai Materi</span>
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* 6. AI Deep Research Panel (NotebookLM style) */}
+            {activeSource === 'research' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Topik atau Masalah yang Ingin Diriset oleh AI:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Cara Membangun Produk Digital Laris di Lynk.id & Shopee untuk Pemula"
+                    value={researchQuery}
+                    onChange={(e) => setResearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleResearchTopic()}
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                      isDarkUi ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                    }`}
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 shrink-0">Fokus Pembahasan:</span>
+                    <select
+                      value={researchFocus}
+                      onChange={(e) => setResearchFocus(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="Panduan Lengkap & Aplikatif">Panduan Lengkap & Aplikatif</option>
+                      <option value="Studi Kasus & Blueprint Bisnis">Studi Kasus & Blueprint Bisnis</option>
+                      <option value="Tutorial Step-by-Step Teknis">Tutorial Step-by-Step Teknis</option>
+                      <option value="Tips Viral & Formula Copywriting">Tips Viral & Formula Copywriting</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isResearching || !researchQuery.trim()}
+                    onClick={handleResearchTopic}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/20 shrink-0 disabled:opacity-50"
+                  >
+                    {isResearching ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>AI Sedang Meriset Materi...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>🔍 Mulai Riset Materi AI</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  AI akan bertindak sebagai analis riset senior: mengumpulkan fakta, menyusun 4-6 bab pembahasan, studi kasus, dan checklist aksi yang langsung siap dijadikan bahan baku E-Book atau Carousel.
+                </p>
               </div>
             )}
           </div>
@@ -709,7 +939,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     <img
                       src={ingestedData.thumbnailUrl}
                       alt="Thumbnail"
-                      className="w-16 h-12 object-cover rounded-lg border border-slate-700"
+                      className="w-16 h-12 object-cover rounded-lg border border-slate-700 shrink-0"
                     />
                   ) : (
                     <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
@@ -718,16 +948,33 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                   )}
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {ingestedData.sourceType === 'youtube' && ingestedData.isExtractedFromCaptions === false ? (
+                      {ingestedData.sourceType === 'research' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          🔍 Riset AI Mendalam
+                        </span>
+                      ) : ingestedData.sourceType === 'image' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                          🖼️ OCR Foto / Infografis
+                        </span>
+                      ) : ingestedData.sourceType === 'youtube' && (ingestedData as any).isPlaylist ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/30">
+                          ⚡ Kurikulum Playlist YouTube
+                        </span>
+                      ) : ingestedData.sourceType === 'youtube' && ingestedData.isExtractedFromCaptions === false ? (
                         <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
                           ⚡ Sintesis Kerangka Video
                         </span>
-                      ) : (
+                      ) : ingestedData.sourceType === 'youtube' ? (
                         <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           ✓ Subtitle Asli Video
                         </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          ✓ Materi {ingestedData.sourceType.toUpperCase()}
+                        </span>
                       )}
                       <span className="text-xs text-slate-400">{ingestedData.wordCount.toLocaleString()} Kata</span>
+                      <span className="text-xs text-slate-400">• ~{Math.max(Math.ceil(ingestedData.wordCount / 200), 1)} Menit Baca</span>
                       {ingestedData.pageCount && (
                         <span className="text-xs text-slate-400">• {ingestedData.pageCount} Halaman</span>
                       )}
@@ -749,17 +996,25 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     {copiedTranscript ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedTranscript ? 'Tersalin' : 'Salin Teks'}</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="px-2 py-1.5 rounded-lg text-xs font-medium border border-slate-700 hover:bg-rose-950/40 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 transition"
+                    title="Hapus materi ini"
+                  >
+                    Reset
+                  </button>
                 </div>
               </div>
 
               {/* Editable Text Area for Custom Adjustments */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Pratinjau / Edit Naskah Sebelum Diolah AI:</span>
-                  <span className="text-slate-500 text-[10px]">Anda dapat menambah atau mengoreksi poin naskah langsung di bawah</span>
+                  <span>Pratinjau / Koreksi Naskah Sebelum Diolah AI:</span>
+                  <span className="text-slate-500 text-[10px]">Anda bebas menambah atau mengedit poin di bawah</span>
                 </div>
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={ingestedData.rawText}
                   onChange={(e) => {
                     const newText = e.target.value;

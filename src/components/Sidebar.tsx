@@ -92,6 +92,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="w-full md:w-80 lg:w-[310px] border-r border-[#1f1f23] bg-[#111114] text-gray-200 flex flex-col h-full overflow-y-auto shrink-0 z-20 transition-colors duration-200">
       <div className="p-4 sm:p-5 flex-1 space-y-4">
+        {/* Pipeline A Indicator Banner */}
+        <div className="px-3 py-2 rounded-xl bg-gradient-to-r from-blue-900/30 to-indigo-900/30 border border-blue-500/30 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs">⚡</span>
+            <div>
+              <p className="text-[11px] font-black text-blue-300 uppercase tracking-wider">
+                Pipeline A: Carousel Cepat
+              </p>
+              <p className="text-[10px] text-gray-400">
+                Langsung dari materi tanpa buat E-Book
+              </p>
+            </div>
+          </div>
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-400 border border-blue-500/30 font-mono">
+            FAST
+          </span>
+        </div>
+
         {/* AI Provider Status Card */}
         <div className="p-3 rounded-xl bg-[#18181d] border border-[#2d2d35] flex items-center justify-between">
           <div className="flex items-center gap-2.5">

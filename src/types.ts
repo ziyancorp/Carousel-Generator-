@@ -218,7 +218,7 @@ export interface DesignVariant {
 // MULTI-SOURCE MATERIAL INGESTION TYPES
 // ==========================================
 
-export type IngestionSourceType = 'youtube' | 'web' | 'pdf' | 'text' | 'research';
+export type IngestionSourceType = 'youtube' | 'web' | 'pdf' | 'text' | 'research' | 'image' | 'document';
 
 export interface IngestedMaterial {
   id: string;
@@ -235,4 +235,4 @@ export interface IngestedMaterial {
   isExtractedFromCaptions?: boolean;
 }
 
-
+export type { CarouselPreset } from './data/samplePresets';

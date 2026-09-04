@@ -207,8 +207,15 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
         .badge-danger { background: #fee2e2; color: #991b1b; }
         
         .check-list { list-style: none; margin: 16px 0; }
-        .check-list li { position: relative; padding-left: 28px; margin-bottom: 10px; font-size: 0.9rem; color: var(--text-main); }
-        .check-list li::before { content: '✓'; position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 50%; background: #10b98122; color: #10b981; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+        .check-list li { position: relative; padding: 10px 14px 10px 38px; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-main); background: var(--bg-card-subtle); border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s ease; border: 1px solid var(--border-color); user-select: none; }
+        .check-list li:hover { border-color: var(--primary); }
+        .check-list li::before { content: ''; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 4px; border: 2px solid var(--text-subtle); transition: all 0.2s; }
+        .check-list li.checked { background: rgba(16, 185, 129, 0.1); border-color: #10b981; text-decoration: line-through; color: #10b981; }
+        .check-list li.checked::before { background: #10b981; border-color: #10b981; content: '✓'; color: #ffffff; font-size: 0.72rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+
+        .golden-takeaway { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.15) 100%); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-md); padding: 20px 24px; margin: 24px 0; }
+        .golden-title { font-size: 0.8rem; font-weight: 800; text-transform: uppercase; color: #d97706; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .golden-body { font-size: 0.92rem; font-weight: 500; color: var(--text-main); font-style: italic; line-height: 1.6; }
         
         .print-btn-bar { display: flex; gap: 8px; margin-bottom: 16px; }
         @media (max-width: 900px) {
@@ -295,10 +302,20 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
             <!-- MODULES -->
             ${ebook.modules
               .map(
-                (m, idx) => `
+                (m, idx) => {
+                  let text = (m.title || '') + ' ' + (m.description || '');
+                  if (m.introCard) text += ' ' + (m.introCard.body || '');
+                  if (m.steps) text += ' ' + m.steps.map((s) => s.title + ' ' + s.text).join(' ');
+                  const words = text.trim().split(/\s+/).filter(Boolean).length;
+                  const minutes = Math.max(1, Math.ceil(words / 140));
+
+                  return `
                 <section id="${m.id || `modul-${idx + 1}`}" class="chapter-section">
                     <div class="chapter-header">
-                        <span class="chapter-badge">${escapeHtml(m.badge || `Modul ${idx + 1}`)}</span>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+                            <span class="chapter-badge">${escapeHtml(m.badge || `Modul ${idx + 1}`)}</span>
+                            <span class="badge badge-blue">⏱️ ~${minutes} Menit Baca</span>
+                        </div>
                         <h2 class="chapter-title">${escapeHtml(m.title)}</h2>
                         ${m.description ? `<p class="chapter-desc">${escapeHtml(m.description)}</p>` : ''}
                     </div>
@@ -333,7 +350,7 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
                                 ? `
                                 <ul class="check-list">
                                     ${m.introCard.checklist
-                                      .map((item) => `<li>${escapeHtml(item)}</li>`)
+                                      .map((item) => `<li onclick="this.classList.toggle('checked')" title="Klik untuk menandai">${escapeHtml(item)}</li>`)
                                       .join('')}
                                 </ul>
                             `
@@ -455,8 +472,14 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
                     `
                         : ''
                     }
+
+                    <div class="golden-takeaway">
+                        <div class="golden-title"><span>🎯</span> <span>Golden Takeaway (Intisari Penting Modul)</span></div>
+                        <div class="golden-body">"${escapeHtml(m.introCard?.subtitle || m.description || m.title)}: Kuasai dan praktekkan langkah praktis ini secara bertahap untuk membangun produk digital dan konten bernilai tinggi."</div>
+                    </div>
                 </section>
-            `
+            `;
+                }
               )
               .join('')}
         </div>
