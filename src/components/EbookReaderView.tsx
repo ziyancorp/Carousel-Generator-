@@ -18,11 +18,14 @@ import {
   ShieldCheck,
   RefreshCw,
   Loader2,
-  FileDown
+  FileDown,
+  Palette
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { EbookData, EbookModule, Slide, ApiKeyConfig } from '../types';
+import { EbookData, EbookModule, Slide, ApiKeyConfig, DesignVariantId } from '../types';
 import { generateStandaloneEbookHtml } from '../utils/ebookHtmlExporter';
+import { VariantSelectorModal } from './VariantSelectorModal';
+import { DESIGN_VARIANTS } from '../data/designVariants';
 
 interface EbookReaderViewProps {
   currentEbook: EbookData;
@@ -57,6 +60,11 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
   const [isDistillingCarousel, setIsDistillingCarousel] = useState(false);
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [ebookTheme, setEbookTheme] = useState<'light' | 'dark'>(isDarkUi ? 'dark' : 'light');
+  const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
+
+  const activeVariant =
+    DESIGN_VARIANTS.find((v) => v.id === (currentEbook.variantId || 'variant-1-tech')) ||
+    DESIGN_VARIANTS[0];
 
   const triggerConfetti = () => {
     try {
@@ -283,6 +291,17 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
               <span>Ingest Materi Baru / AI</span>
             </button>
           )}
+
+          {/* Variant Selector Button with Live Preview */}
+          <button
+            type="button"
+            onClick={() => setIsVariantModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-amber-400 border border-amber-500/40 shadow-sm transition flex items-center gap-1.5 shrink-0"
+            title="Pilih dan ubah varian gaya desain E-Book (5 Varian Tersedia)"
+          >
+            <Palette className="w-3.5 h-3.5 text-amber-400" />
+            <span>Gaya Desain: {activeVariant.name.split(' ')[1] || 'Tech'}</span>
+          </button>
 
           {/* Distill E-Book to Carousel Slides */}
           {onDistillToCarousel && currentEbook.modules.length > 0 && (
@@ -629,6 +648,21 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
           )}
         </main>
       </div>
+
+      {/* 5-Variant Selector & Live Preview Modal */}
+      <VariantSelectorModal
+        isOpen={isVariantModalOpen}
+        onClose={() => setIsVariantModalOpen(false)}
+        selectedVariantId={currentEbook.variantId || 'variant-1-tech'}
+        onSelectVariant={(variantId) => {
+          onUpdateEbook({ ...currentEbook, variantId });
+          triggerConfetti();
+        }}
+        isDarkUi={isDarkUi}
+        contentTitle={currentEbook.title}
+        contentSubtitle={currentEbook.subtitle}
+        authorName={currentEbook.author}
+      />
     </div>
   );
 };

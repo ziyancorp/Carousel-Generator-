@@ -174,6 +174,44 @@ export interface EbookData {
   edition: string; // e.g. "Edisi 2026 • Lynk.id Ready"
   author: string; // e.g. "ZiyanCorp"
   modules: EbookModule[];
+  variantId?: DesignVariantId;
+}
+
+// ==========================================
+// 5 DESIGN VARIANTS (TECH, WEALTH, PRODUCTIVITY, CREATOR, DARK AI)
+// ==========================================
+
+export type DesignVariantId =
+  | 'variant-1-tech'
+  | 'variant-2-wealth'
+  | 'variant-3-productivity'
+  | 'variant-4-creator'
+  | 'variant-5-dark-ai';
+
+export interface DesignVariant {
+  id: DesignVariantId;
+  name: string;
+  tagline: string;
+  category: string;
+  isMainVariant?: boolean;
+  accentBadge: string;
+  palette: {
+    bg: string;
+    surface: string;
+    border: string;
+    primaryText: string;
+    secondaryText: string;
+    accent: string;
+    accentGlow: string;
+    badgeBg: string;
+    badgeText: string;
+  };
+  visualMotifs: string[];
+  features: string[];
+  sampleTitle: string;
+  sampleSubtitle: string;
+  samplePoints: string[];
+  themeId: ThemeId;
 }
 
 // ==========================================
@@ -196,4 +234,5 @@ export interface IngestedMaterial {
   dateAdded: string;
   isExtractedFromCaptions?: boolean;
 }
+
 

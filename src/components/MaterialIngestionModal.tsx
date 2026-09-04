@@ -14,9 +14,13 @@ import {
   Copy,
   Check,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  Palette,
+  Eye
 } from 'lucide-react';
-import { IngestedMaterial, IngestionSourceType, ApiKeyConfig, EbookData, Slide } from '../types';
+import { IngestedMaterial, IngestionSourceType, ApiKeyConfig, EbookData, Slide, DesignVariantId } from '../types';
+import { VariantSelectorModal } from './VariantSelectorModal';
+import { DESIGN_VARIANTS } from '../data/designVariants';
 
 interface MaterialIngestionModalProps {
   isOpen: boolean;
@@ -60,6 +64,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
   const [slideCount, setSlideCount] = useState(7);
   const [language, setLanguage] = useState('Indonesian');
   const [copiedTranscript, setCopiedTranscript] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState<DesignVariantId>('variant-1-tech');
+  const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
+
+  const activeVariantConfig =
+    DESIGN_VARIANTS.find((v) => v.id === selectedVariantId) || DESIGN_VARIANTS[0];
 
   if (!isOpen) return null;
 
@@ -264,7 +273,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
         throw new Error(data.error || 'Gagal membuat E-Book dari AI.');
       }
 
-      onEbookGenerated(data.ebook);
+      onEbookGenerated({ ...data.ebook, variantId: selectedVariantId });
       onClose();
     } catch (err: any) {
       setIngestError(err.message || 'Terjadi kesalahan saat menyusun E-Book.');
@@ -679,6 +688,45 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
               </div>
             </div>
 
+            {/* 5-Variant Selection Bar with Live Preview */}
+            <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              isDarkUi ? 'bg-slate-900/80 border-amber-500/30' : 'bg-amber-50/70 border-amber-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shadow-md shrink-0"
+                  style={{ backgroundColor: activeVariantConfig.palette.bg }}
+                >
+                  <Palette className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      Gaya Desain: {activeVariantConfig.name}
+                    </span>
+                    {activeVariantConfig.isMainVariant ? (
+                      <span className="text-[10px] px-2 py-0.2 rounded-full font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        Varian Utama ⭐
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.2 rounded-full font-semibold bg-slate-700/40 text-slate-300">
+                        {activeVariantConfig.category.split(',')[0]}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 line-clamp-1">{activeVariantConfig.tagline}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVariantModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 shadow-sm flex items-center justify-center gap-1.5 shrink-0 transition"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Lihat Live Preview (5 Gaya)</span>
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Option 1: Master E-Book */}
               <div className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition ${
@@ -798,6 +846,20 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* 5-Variant Selector & Live Preview Modal */}
+      <VariantSelectorModal
+        isOpen={isVariantModalOpen}
+        onClose={() => setIsVariantModalOpen(false)}
+        selectedVariantId={selectedVariantId}
+        onSelectVariant={(variantId) => {
+          setSelectedVariantId(variantId);
+        }}
+        isDarkUi={isDarkUi}
+        contentTitle={ingestedData?.title || customTopic || 'Panduan Komprehensif'}
+        contentSubtitle="Format infografis praktis siap baca dan monetisasi."
+        authorName={authorName}
+      />
     </div>
   );
 };

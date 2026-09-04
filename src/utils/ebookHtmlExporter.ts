@@ -1,9 +1,66 @@
 import { EbookData } from '../types';
+import { getDesignVariant } from '../data/designVariants';
 
 export function generateStandaloneEbookHtml(ebook: EbookData): string {
+  const variant = getDesignVariant(ebook.variantId);
   const safeTitle = escapeHtml(ebook.title);
   const safeSubtitle = escapeHtml(ebook.subtitle);
   const safeTag = escapeHtml(ebook.tag || 'E-BOOK PANDUAN PRAKTIS');
+  const safeVariantName = escapeHtml(variant.name);
+  const safeAuthor = escapeHtml(ebook.author || 'Arijal Meutuwah');
+
+  // Variant Specific Customization Variables
+  let heroGradient = 'linear-gradient(135deg, #0B2545 0%, #133E68 60%, #1A4B7C 100%)';
+  let heroPattern = 'radial-gradient(rgba(255, 210, 0, 0.22) 1.5px, transparent 1.5px)';
+  let heroPatternSize = '22px 22px';
+  let heroTagBg = 'rgba(255, 210, 0, 0.15)';
+  let heroTagColor = '#FFD200';
+  let heroTagBorder = 'rgba(255, 210, 0, 0.4)';
+  let heroBadge = '⭐ ' + variant.accentBadge;
+  let primaryColor = '#0B2545';
+  let accentColor = '#FFD200';
+
+  if (variant.id === 'variant-2-wealth') {
+    heroGradient = 'linear-gradient(135deg, #0A3622 0%, #114D32 60%, #1B6E47 100%)';
+    heroPattern = 'repeating-linear-gradient(45deg, rgba(229, 169, 60, 0.08) 0px, rgba(229, 169, 60, 0.08) 2px, transparent 2px, transparent 12px)';
+    heroPatternSize = 'auto';
+    heroTagBg = 'rgba(229, 169, 60, 0.18)';
+    heroTagColor = '#E5A93C';
+    heroTagBorder = 'rgba(229, 169, 60, 0.5)';
+    heroBadge = '👑 ' + variant.accentBadge;
+    primaryColor = '#0A3622';
+    accentColor = '#E5A93C';
+  } else if (variant.id === 'variant-3-productivity') {
+    heroGradient = 'linear-gradient(135deg, #181B1E 0%, #252A2F 100%)';
+    heroPattern = 'linear-gradient(to right, rgba(16, 185, 129, 0.14) 1px, transparent 1px), linear-gradient(to bottom, rgba(16, 185, 129, 0.14) 1px, transparent 1px)';
+    heroPatternSize = '24px 24px';
+    heroTagBg = 'rgba(16, 185, 129, 0.15)';
+    heroTagColor = '#10B981';
+    heroTagBorder = 'rgba(16, 185, 129, 0.4)';
+    heroBadge = '⚡ ' + variant.accentBadge;
+    primaryColor = '#1A1D20';
+    accentColor = '#10B981';
+  } else if (variant.id === 'variant-4-creator') {
+    heroGradient = 'linear-gradient(135deg, #2E1065 0%, #4C1D95 50%, #FF6B4A 100%)';
+    heroPattern = 'radial-gradient(rgba(255, 107, 74, 0.18) 1.5px, transparent 1.5px)';
+    heroPatternSize = '18px 18px';
+    heroTagBg = 'rgba(255, 107, 74, 0.2)';
+    heroTagColor = '#FFA07A';
+    heroTagBorder = 'rgba(255, 107, 74, 0.5)';
+    heroBadge = '🚀 ' + variant.accentBadge;
+    primaryColor = '#1E1B4B';
+    accentColor = '#FF6B4A';
+  } else if (variant.id === 'variant-5-dark-ai') {
+    heroGradient = 'linear-gradient(135deg, #070B12 0%, #0D1B2E 50%, #0369A1 100%)';
+    heroPattern = 'linear-gradient(90deg, rgba(0, 240, 255, 0.08) 1px, transparent 1px), linear-gradient(rgba(0, 240, 255, 0.08) 1px, transparent 1px)';
+    heroPatternSize = '28px 28px';
+    heroTagBg = 'rgba(0, 240, 255, 0.15)';
+    heroTagColor = '#00F0FF';
+    heroTagBorder = 'rgba(0, 240, 255, 0.4)';
+    heroBadge = '🤖 ' + variant.accentBadge;
+    primaryColor = '#070B12';
+    accentColor = '#00F0FF';
+  }
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -22,14 +79,11 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
             --text-main: #0f172a;
             --text-muted: #64748b;
             --text-subtle: #94a3b8;
-            --primary: #2563eb;
-            --primary-hover: #1d4ed8;
+            --primary: ${primaryColor};
+            --primary-hover: #1e3a8a;
             --primary-light: #eff6ff;
             --primary-border: #bfdbfe;
-            --accent-cyan: #06b6d4;
-            --accent-emerald: #10b981;
-            --accent-amber: #f59e0b;
-            --accent-purple: #8b5cf6;
+            --accent: ${accentColor};
             --border-color: #e2e8f0;
             --border-hover: #cbd5e1;
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
@@ -49,7 +103,7 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
             --text-subtle: #64748b;
-            --primary: #3b82f6;
+            --primary: ${primaryColor};
             --primary-hover: #60a5fa;
             --primary-light: #1e3a8a33;
             --primary-border: #1e40af;
@@ -79,35 +133,60 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
         .main-wrapper { flex: 1; margin-left: 320px; min-height: 100vh; display: flex; flex-direction: column; }
         .topbar-mobile { display: none; position: sticky; top: 0; background: var(--bg-card); border-bottom: 1px solid var(--border-color); padding: 12px 16px; align-items: center; justify-content: space-between; z-index: 40; }
         .content-container { max-width: 920px; margin: 0 auto; padding: 48px 32px 100px 32px; width: 100%; }
-        .ebook-hero { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #06b6d4 100%); border-radius: var(--radius-xl); padding: 48px 36px; color: #ffffff; margin-bottom: 48px; position: relative; overflow: hidden; box-shadow: var(--shadow-lg); }
-        .hero-tag { display: inline-block; background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 100px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; margin-bottom: 16px; border: 1px solid rgba(255, 255, 255, 0.3); }
+        
+        .ebook-hero { 
+            background: ${heroGradient}; 
+            background-image: ${heroPattern};
+            background-size: ${heroPatternSize};
+            border-radius: var(--radius-xl); 
+            padding: 48px 36px; 
+            color: #ffffff; 
+            margin-bottom: 48px; 
+            position: relative; 
+            overflow: hidden; 
+            box-shadow: var(--shadow-lg); 
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .hero-badges-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        .hero-tag { display: inline-block; background: ${heroTagBg}; color: ${heroTagColor}; border: 1px solid ${heroTagBorder}; backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 100px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }
+        .hero-variant-badge { display: inline-block; background: rgba(0, 0, 0, 0.35); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 100px; font-size: 0.78rem; font-weight: 700; }
         .hero-title { font-size: 2.25rem; font-weight: 800; line-height: 1.25; margin-bottom: 16px; letter-spacing: -0.02em; }
         .hero-subtitle { font-size: 1.05rem; color: rgba(255, 255, 255, 0.9); max-width: 650px; line-height: 1.6; margin-bottom: 28px; }
         .hero-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.2); }
         .hero-meta-label { font-size: 0.72rem; text-transform: uppercase; color: rgba(255, 255, 255, 0.75); font-weight: 600; display: block; }
         .hero-meta-value { font-size: 0.95rem; font-weight: 700; color: #ffffff; }
+        
         .chapter-section { margin-bottom: 64px; scroll-margin-top: 80px; }
         .chapter-header { margin-bottom: 24px; }
         .chapter-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--primary-light); color: var(--primary); border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
         .chapter-title { font-size: 1.65rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em; line-height: 1.3; }
         .chapter-desc { font-size: 1rem; color: var(--text-muted); margin-top: 6px; }
+        
         .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 28px 24px; margin-bottom: 24px; box-shadow: var(--shadow-sm); transition: border-color 0.2s ease, box-shadow 0.2s ease; }
         .card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-md); }
         .card-header-flex { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
         .card-title-group { display: flex; align-items: center; gap: 12px; }
         .card-icon-pill { width: 42px; height: 42px; border-radius: var(--radius-md); background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; }
         .card-title { font-size: 1.15rem; font-weight: 700; color: var(--text-main); }
+        
         .step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
         .step-card { background: var(--bg-card-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 20px; }
         .step-badge { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 0.82rem; font-weight: 800; margin-bottom: 12px; }
         .step-card-title { font-size: 0.98rem; font-weight: 700; margin-bottom: 6px; color: var(--text-main); }
         .step-card-text { font-size: 0.85rem; color: var(--text-muted); line-height: 1.55; }
-        .prompt-container { background: var(--bg-card-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; margin: 18px 0; }
-        .prompt-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(0, 0, 0, 0.03); border-bottom: 1px solid var(--border-color); }
-        .prompt-tag { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--primary); }
-        .btn-copy { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 0.75rem; font-weight: 600; color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
-        .btn-copy:hover { background: var(--primary); color: #ffffff; border-color: var(--primary); }
-        .prompt-content { padding: 16px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-main); white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+        
+        /* Mac Terminal Snippet Window Style */
+        .prompt-container { background: #0d1117; border: 1px solid #30363d; border-radius: var(--radius-md); overflow: hidden; margin: 18px 0; box-shadow: var(--shadow-md); }
+        .prompt-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #161b22; border-bottom: 1px solid #30363d; }
+        .terminal-dots { display: inline-flex; align-items: center; gap: 6px; }
+        .dot-red { width: 10px; height: 10px; border-radius: 50%; background: #ff5f56; display: inline-block; }
+        .dot-yellow { width: 10px; height: 10px; border-radius: 50%; background: #ffbd2e; display: inline-block; }
+        .dot-green { width: 10px; height: 10px; border-radius: 50%; background: #27c93f; display: inline-block; }
+        .prompt-tag { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: ${accentColor}; font-family: var(--font-mono); }
+        .btn-copy { background: #21262d; border: 1px solid #363b42; border-radius: var(--radius-sm); padding: 5px 12px; font-size: 0.75rem; font-weight: 600; color: #c9d1d9; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s ease; }
+        .btn-copy:hover { background: #30363d; color: #ffffff; border-color: #8b949e; }
+        .prompt-content { padding: 18px; font-family: var(--font-mono); font-size: 0.85rem; color: #e6edf3; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+        
         .callout { padding: 18px 20px; border-radius: var(--radius-md); margin: 18px 0; display: flex; gap: 14px; align-items: flex-start; }
         .callout-info { background: var(--primary-light); border: 1px solid var(--primary-border); color: var(--text-main); }
         .callout-warning { background: #fef3c722; border: 1px solid #fde68a; color: var(--text-main); }
@@ -115,6 +194,7 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
         .callout-icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 2px; }
         .callout-body { font-size: 0.9rem; line-height: 1.6; }
         .callout-title { font-weight: 700; margin-bottom: 4px; color: var(--text-main); }
+        
         .table-responsive { overflow-x: auto; margin: 20px 0; border-radius: var(--radius-md); border: 1px solid var(--border-color); }
         table { width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left; }
         th { background: var(--bg-card-subtle); padding: 12px 16px; font-weight: 700; color: var(--text-main); border-bottom: 1px solid var(--border-color); }
@@ -125,9 +205,11 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
         .badge-blue { background: #dbeafe; color: #1e40af; }
         .badge-purple { background: #ede9fe; color: #5b21b6; }
         .badge-danger { background: #fee2e2; color: #991b1b; }
+        
         .check-list { list-style: none; margin: 16px 0; }
         .check-list li { position: relative; padding-left: 28px; margin-bottom: 10px; font-size: 0.9rem; color: var(--text-main); }
         .check-list li::before { content: '✓'; position: absolute; left: 0; top: 1px; width: 18px; height: 18px; border-radius: 50%; background: #10b98122; color: #10b981; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+        
         .print-btn-bar { display: flex; gap: 8px; margin-bottom: 16px; }
         @media (max-width: 900px) {
             .sidebar { transform: translateX(-100%); }
@@ -146,7 +228,7 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
             .content-container { max-width: 100% !important; padding: 0 !important; }
             .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #ccc !important; }
             .chapter-section { break-before: page; }
-            .ebook-hero { background: #1e40af !important; color: #fff !important; }
+            .ebook-hero { background: ${primaryColor} !important; color: #fff !important; }
         }
     </style>
 </head>
@@ -155,7 +237,7 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
 <div class="app-layout">
     <header class="topbar-mobile">
         <button class="btn-icon" id="btnToggleSidebar" aria-label="Buka Menu">☰</button>
-        <span style="font-weight: 800; font-size: 0.95rem;">E-BOOK VIEWER</span>
+        <span style="font-weight: 800; font-size: 0.95rem;">E-BOOK STUDIO</span>
         <button class="btn-icon" id="btnThemeMobile" aria-label="Ganti Tema">🌓</button>
     </header>
 
@@ -189,21 +271,24 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
         <div class="content-container">
 
             <div class="print-btn-bar">
-                <button class="btn-copy" onclick="window.print()" style="padding: 8px 16px; font-size: 0.85rem; font-weight: 700; background: #2563eb; color: #fff; border-color: #2563eb;">
+                <button class="btn-copy" onclick="window.print()" style="padding: 8px 16px; font-size: 0.85rem; font-weight: 700; background: ${primaryColor}; color: #fff; border-color: ${primaryColor};">
                     🖨️ Cetak / Simpan PDF
                 </button>
             </div>
 
             <!-- HERO COVER -->
             <section class="ebook-hero">
-                <span class="hero-tag">${safeTag}</span>
+                <div class="hero-badges-row">
+                    <span class="hero-tag">${safeTag}</span>
+                    <span class="hero-variant-badge">${heroBadge}</span>
+                </div>
                 <h1 class="hero-title">${safeTitle}</h1>
                 <p class="hero-subtitle">${safeSubtitle}</p>
                 <div class="hero-meta-grid">
+                    <div class="hero-meta-item"><span class="hero-meta-label">Penulis</span><span class="hero-meta-value">${safeAuthor}</span></div>
                     <div class="hero-meta-item"><span class="hero-meta-label">Tingkat Kesulitan</span><span class="hero-meta-value">${escapeHtml(ebook.difficulty || 'Pemula')}</span></div>
-                    <div class="hero-meta-item"><span class="hero-meta-label">Platform Utama</span><span class="hero-meta-value">${escapeHtml(ebook.platform || 'AI Tools')}</span></div>
+                    <div class="hero-meta-item"><span class="hero-meta-label">Platform</span><span class="hero-meta-value">${escapeHtml(ebook.platform || 'AI Tools')}</span></div>
                     <div class="hero-meta-item"><span class="hero-meta-label">Potensi Cuan</span><span class="hero-meta-value">${escapeHtml(ebook.monetization || 'Shopee / Lynk.id')}</span></div>
-                    <div class="hero-meta-item"><span class="hero-meta-label">Format File</span><span class="hero-meta-value">${escapeHtml(ebook.format || 'Responsive & Print PDF')}</span></div>
                 </div>
             </section>
 
@@ -331,7 +416,14 @@ export function generateStandaloneEbookHtml(ebook: EbookData): string {
                                 (pr) => `
                                 <div class="prompt-container">
                                     <div class="prompt-header">
-                                        <span class="prompt-tag">${escapeHtml(pr.tag)}</span>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span class="terminal-dots">
+                                                <span class="dot-red"></span>
+                                                <span class="dot-yellow"></span>
+                                                <span class="dot-green"></span>
+                                            </span>
+                                            <span class="prompt-tag">${escapeHtml(pr.tag)}</span>
+                                        </div>
                                         <button class="btn-copy" onclick="copyPrompt(this)">📋 Salin Prompt</button>
                                     </div>
                                     <div class="prompt-content">${escapeHtml(pr.content)}</div>
