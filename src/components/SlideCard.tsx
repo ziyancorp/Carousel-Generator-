@@ -157,8 +157,8 @@ export const SlideCard: React.FC<SlideCardProps> = ({
   const isHook = index === 0 || slide.type === 'hook';
   const isCta = index === totalSlides - 1 || slide.type === 'cta';
 
-  const cardWidth = aspectRatio === '4:5' ? 'w-[340px]' : 'w-[360px]';
-  const cardHeight = aspectRatio === '4:5' ? 'h-[425px]' : 'h-[360px]';
+  const cardWidth = aspectRatio === '4:5' ? 'w-[min(340px,calc(100vw-32px))]' : 'w-[min(360px,calc(100vw-32px))]';
+  const cardHeight = aspectRatio === '4:5' ? 'h-[min(425px,calc((100vw-32px)*1.25))]' : 'h-[min(360px,calc(100vw-32px))]';
 
   const formattedNum = String(index + 1).padStart(2, '0');
   const formattedTotal = String(totalSlides).padStart(2, '0');
