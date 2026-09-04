@@ -27,6 +27,7 @@ import { generateStandaloneEbookHtml } from '../utils/ebookHtmlExporter';
 import { VariantSelectorModal } from './VariantSelectorModal';
 import { MarketingPromptsModal } from './MarketingPromptsModal';
 import { DESIGN_VARIANTS } from '../data/designVariants';
+import { distillEbookToCarouselAI } from '../services/aiClient';
 
 interface EbookReaderViewProps {
   currentEbook: EbookData;
@@ -154,23 +155,15 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
     setIsDistillingCarousel(true);
 
     try {
-      const res = await fetch('/api/distill-ebook-to-carousel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ebook: currentEbook,
-          slideCount: Math.min(Math.max(currentEbook.modules.length + 2, 5), 8),
-          authorName: authorName || '@abangjal',
-          provider: apiKeyConfig?.provider || 'gemini',
-          apiKey: apiKeyConfig?.apiKey,
-          model: apiKeyConfig?.model,
-          baseUrl: apiKeyConfig?.baseUrl,
-        }),
+      const result = await distillEbookToCarouselAI({
+        ebook: currentEbook,
+        slideCount: Math.min(Math.max(currentEbook.modules.length + 2, 5), 8),
+        authorName: authorName || '@abangjal',
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-      if (data && data.slides) {
-        onDistillToCarousel(data.slides, currentEbook.title);
+      if (result && result.slides && result.slides.length > 0) {
+        onDistillToCarousel(result.slides, currentEbook.title);
         triggerConfetti();
       } else {
         alert('Gagal meringkas E-Book menjadi carousel.');

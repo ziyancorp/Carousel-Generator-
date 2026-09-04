@@ -1,22 +1,15 @@
 import React from 'react';
 import {
   Layers,
-  HardDrive,
-  Table,
-  CheckCircle2,
   Ratio,
   Download,
-  FolderUp,
-  Key,
-  FileEdit,
   Sun,
   Moon,
   Type,
   ChevronDown,
   BookOpen,
   Sparkles,
-  Cpu,
-  Presentation
+  Cpu
 } from 'lucide-react';
 import { AspectRatio, ThemeId, FontId, AppUiMode, ActiveAppTab, ApiKeyConfig } from '../types';
 import { THEMES, FONT_OPTIONS } from '../constants/themes';
@@ -32,13 +25,8 @@ interface NavbarProps {
   onFontChange: (font: FontId) => void;
   appUiMode: AppUiMode;
   onToggleAppUiMode: () => void;
-  isGoogleConnected: boolean;
-  onConnectGoogle: () => void;
   onOpenExportModal: () => void;
-  onOpenDriveExport: () => void;
-  onOpenSheetsSync: () => void;
   onOpenApiKeyModal: () => void;
-  onOpenContentWritingModal: () => void;
   onOpenMaterialIngest?: () => void;
   apiKeyConfig?: ApiKeyConfig;
   slideCount: number;
@@ -55,13 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onFontChange,
   appUiMode,
   onToggleAppUiMode,
-  isGoogleConnected,
-  onConnectGoogle,
   onOpenExportModal,
-  onOpenDriveExport,
-  onOpenSheetsSync,
   onOpenApiKeyModal,
-  onOpenContentWritingModal,
   onOpenMaterialIngest,
   apiKeyConfig,
   slideCount,
@@ -74,36 +57,33 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className={`h-16 border-b px-3 sm:px-5 flex items-center justify-between z-30 shrink-0 relative transition-colors duration-200 ${
       isDark ? 'bg-[#111114] border-[#1f1f23] text-white' : 'bg-white border-gray-200 text-gray-900 shadow-sm'
     }`}>
-      {/* Google Animated Gradient Accent Line */}
-      <div className="google-gradient-bar h-[3px] w-full absolute top-0 left-0"></div>
-
       {/* Left: Brand & Studio Mode Tabs */}
       <div className="flex items-center gap-2 sm:gap-3">
-        <div className="w-8 h-8 sm:w-9 sm:h-9 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
+        <div className="w-9 h-9 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
           {activeTab === 'carousel' ? (
-            <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            <Layers className="w-5 h-5 text-white" />
           ) : (
-            <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            <BookOpen className="w-5 h-5 text-white" />
           )}
         </div>
         <div className="hidden min-[480px]:block">
           <div className="flex items-center gap-2">
             <h1 className={`font-bold text-xs sm:text-sm md:text-base tracking-tight truncate max-w-[130px] sm:max-w-none ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              <span className="hidden md:inline">CarouselX & E-Book Studio</span>
+              <span className="hidden md:inline">CarouselX Studio</span>
               <span className="md:hidden">CarouselX</span>
             </h1>
           </div>
-          <p className="text-[10px] text-gray-500 hidden lg:block">AI Microblog Carousel & Interactive E-Book Publisher</p>
+          <p className="text-[10px] text-gray-400 hidden lg:block">AI Microblog & E-Book Generator</p>
         </div>
 
         {/* Tab Switcher: Carousel Studio vs E-Book Studio */}
-        <div className={`flex items-center p-0.5 rounded-xl border ${
+        <nav aria-label="Tampilan Mode" className={`flex items-center p-1 rounded-xl border ${
           isDark ? 'bg-[#18181c] border-[#2d2d35]' : 'bg-gray-100 border-gray-300'
         }`}>
           <button
             type="button"
             onClick={() => onTabChange('carousel')}
-            className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1 sm:gap-1.5 ${
+            className={`min-h-[36px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
               activeTab === 'carousel'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : isDark ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
@@ -121,7 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('ebook')}
-            className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1 sm:gap-1.5 ${
+            className={`min-h-[36px] px-2.5 sm:px-3.5 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
               activeTab === 'ebook'
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
                 : isDark ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
@@ -129,35 +109,24 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">E-Book</span>
-            <span className={`text-[9px] px-1 sm:px-1.5 py-0.2 rounded font-bold uppercase ${
+            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
               activeTab === 'ebook' ? 'bg-indigo-900/60 text-indigo-200' : 'bg-amber-500/20 text-amber-400'
             }`}>
               PDF
             </span>
           </button>
-        </div>
+        </nav>
 
-        {/* Ingest Materi Button */}
+        {/* Ingest Materi Quick Action */}
         {onOpenMaterialIngest && (
           <button
             type="button"
             onClick={onOpenMaterialIngest}
-            className="ml-1 hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600/20 to-blue-600/20 hover:from-indigo-600/30 hover:to-blue-600/30 text-indigo-400 border border-indigo-500/30 transition shadow-sm"
+            className="min-h-[38px] flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 transition shadow-sm"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Ingest Materi AI</span>
-          </button>
-        )}
-
-        {/* Tulis Konten Button (Carousel Only) */}
-        {activeTab === 'carousel' && (
-          <button
-            type="button"
-            onClick={onOpenContentWritingModal}
-            className="ml-1 hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/25 transition"
-          >
-            <FileEdit className="w-3.5 h-3.5" />
-            <span>Tulis Konten</span>
+            <span className="hidden sm:inline">Ingest Materi</span>
+            <span className="sm:hidden">+ Ingest</span>
           </button>
         )}
       </div>
@@ -240,14 +209,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Right Controls: Theme Toggle, Custom Multi-Provider AI Key, Google Workspace, Export */}
+      {/* Right Controls: Theme Toggle, AI Key, Export */}
       <div className="flex items-center gap-1.5 sm:gap-2.5">
         {/* Light / Dark Mode Toggle */}
         <button
           type="button"
           onClick={onToggleAppUiMode}
-          title={isDark ? 'Beralih ke Mode Terang (Light Mode)' : 'Beralih ke Mode Gelap (Dark Mode)'}
-          className={`p-2 rounded-xl border text-xs font-medium transition flex items-center gap-1.5 ${
+          title={isDark ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'}
+          className={`min-h-[40px] min-w-[40px] p-2 rounded-xl border text-xs font-medium transition flex items-center justify-center ${
             isDark
               ? 'bg-[#18181c] border-[#2d2d35] text-amber-300 hover:bg-[#25252c]'
               : 'bg-gray-100 border-gray-300 text-amber-600 hover:bg-gray-200'
@@ -256,12 +225,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {/* Multi-Provider AI Key Button */}
+        {/* AI Key Button */}
         <button
           type="button"
           onClick={onOpenApiKeyModal}
-          title={`AI Provider Aktif: ${activeProvider.toUpperCase()}${hasCustomKey ? ' (Custom Key)' : ' (Default)'}`}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition ${
+          title={`AI Provider: ${activeProvider.toUpperCase()}${hasCustomKey ? ' (Custom Key)' : ' (Default)'}`}
+          className={`min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
             hasCustomKey
               ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400'
               : isDark
@@ -270,54 +239,32 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           <Cpu className={`w-3.5 h-3.5 ${hasCustomKey ? 'text-emerald-400' : 'text-blue-400'}`} />
-          <span className="hidden md:inline font-mono font-semibold uppercase text-[11px]">
+          <span className="hidden sm:inline font-mono font-semibold uppercase text-[11px]">
             {activeProvider}
           </span>
-          <span className="md:hidden">AI Key</span>
+          <span className="sm:hidden">Key</span>
         </button>
 
-        {/* Google Workspace Connection Pill */}
-        <button
-          type="button"
-          onClick={onConnectGoogle}
-          title={isGoogleConnected ? 'Google Workspace (Slides, Drive & Sheets) Terhubung' : 'Buka Google Workspace Hub (Slides, Drive & Sheets)'}
-          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
-            isGoogleConnected
-              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
-              : isDark
-              ? 'bg-[#18181c] border-[#2d2d35] text-gray-400 hover:text-white'
-              : 'bg-gray-100 border-gray-300 text-gray-700 hover:text-gray-900'
-          }`}
-        >
-          <div className="flex items-center -space-x-1">
-            <Presentation className="w-3.5 h-3.5 text-amber-400" />
-            <HardDrive className="w-3.5 h-3.5 text-blue-400" />
-          </div>
-          <span className="hidden sm:inline">
-            {isGoogleConnected ? 'Google Hub' : 'Google Slides'}
-          </span>
-          {isGoogleConnected && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-        </button>
-
-        {/* Carousel Export Trigger (in Carousel Mode) */}
+        {/* Export Trigger Button */}
         {activeTab === 'carousel' ? (
           <button
             type="button"
             onClick={onOpenExportModal}
             disabled={slideCount === 0}
-            className="px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/25 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
+            className="min-h-[40px] px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-md shadow-blue-600/25 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5"
           >
-            <Download className="w-3.5 h-3.5 text-white" />
-            <span>Export ({slideCount})</span>
+            <Download className="w-4 h-4 text-white" />
+            <span>Export</span>
           </button>
         ) : (
           <button
             type="button"
             onClick={() => onTabChange('carousel')}
-            className="px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold text-gray-300 bg-[#1f293d] hover:bg-[#283650] border border-[#2d3a52] transition flex items-center gap-1.5"
+            className="min-h-[40px] px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold text-gray-300 bg-[#1f293d] hover:bg-[#283650] border border-[#2d3a52] transition flex items-center gap-1.5"
           >
             <Layers className="w-3.5 h-3.5 text-blue-400" />
-            <span>Ke Carousel Studio</span>
+            <span className="hidden sm:inline">Ke Carousel</span>
+            <span className="sm:hidden">Carousel</span>
           </button>
         )}
       </div>

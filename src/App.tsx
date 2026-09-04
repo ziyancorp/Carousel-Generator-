@@ -7,13 +7,7 @@ import {
   Download,
   Sparkles,
   Wand2,
-  FileEdit,
-  Key,
-  HardDrive,
-  Table,
-  CheckCircle2,
   Ratio,
-  FolderUp,
   BookOpen
 } from 'lucide-react';
 import { Slide, AspectRatio, ThemeId, FontId, AppUiMode, ActiveAppTab, ApiKeyConfig, EbookData } from './types';
@@ -24,13 +18,11 @@ import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { SlideCard } from './components/SlideCard';
 import { SlideEditorModal } from './components/SlideEditorModal';
-import { GoogleSyncModal, GoogleWorkspaceMode } from './components/GoogleSyncModal';
 import { ExportModal } from './components/ExportModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
-import { ContentWritingModal } from './components/ContentWritingModal';
 import { EbookReaderView } from './components/EbookReaderView';
 import { MaterialIngestionModal } from './components/MaterialIngestionModal';
-import { authenticateGoogle, getStoredGoogleToken } from './services/googleWorkspace';
+import { generateCarouselAI, structureContentAI } from './services/aiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveAppTab>('carousel');
@@ -68,112 +60,85 @@ export default function App() {
     model: 'gemini-2.5-flash',
   });
 
-  // Mobile View Switcher (Carousel Mode: 'sidebar' | 'preview')
-  const [mobileView, setMobileView] = useState<'sidebar' | 'preview'>('preview');
-
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [statusType, setStatusType] = useState<'info' | 'error' | 'success' | ''>('');
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
-
-  // Active slide index for pagination dots
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
-
-  // Modals state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [polishingIndex, setPolishingIndex] = useState<number | null>(null);
   const [editingSlide, setEditingSlide] = useState<Slide | null>(null);
   const [editingIndex, setEditingIndex] = useState<number>(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [isContentWritingModalOpen, setIsContentWritingModalOpen] = useState(false);
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
-  const [googleModal, setGoogleModal] = useState<{
-    isOpen: boolean;
-    mode: GoogleWorkspaceMode;
-  }>({
-    isOpen: false,
-    mode: 'slides_export',
-  });
 
-  const [polishingIndex, setPolishingIndex] = useState<number | null>(null);
-  const previewScrollRef = useRef<HTMLDivElement>(null);
+  // Mobile View Toggle: 'sidebar' (input controls) vs 'preview' (slide canvas)
+  const [mobileView, setMobileView] = useState<'sidebar' | 'preview'>('preview');
 
-  // Load preferences from localStorage on init
+  // Status Notification Toast
+  const [statusMessage, setStatusMessage] = useState('');
+  const [statusType, setStatusType] = useState<'success' | 'error' | 'info'>('info');
+
+  // Slide Card DOM refs for high-res PNG export
+  const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Load stored settings on initial mount
   useEffect(() => {
     try {
-      const savedConfig = localStorage.getItem('carouselx_ai_config');
-      if (savedConfig) {
-        setApiKeyConfig(JSON.parse(savedConfig));
-      } else {
-        const legacyKey = localStorage.getItem('carouselx_gemini_key');
-        if (legacyKey) {
-          setApiKeyConfig({ provider: 'gemini', apiKey: legacyKey, model: 'gemini-2.5-flash' });
-        }
+      const savedTheme = localStorage.getItem('carouselx_theme') as ThemeId;
+      if (savedTheme && THEMES[savedTheme]) setCurrentTheme(savedTheme);
+
+      const savedFont = localStorage.getItem('carouselx_font') as FontId;
+      if (savedFont && FONT_OPTIONS.some((f) => f.id === savedFont)) setCurrentFont(savedFont);
+
+      const savedRatio = localStorage.getItem('carouselx_ratio') as AspectRatio;
+      if (savedRatio === '1:1' || savedRatio === '4:5') setAspectRatio(savedRatio);
+
+      const savedUiMode = localStorage.getItem('carouselx_ui_mode') as AppUiMode;
+      if (savedUiMode === 'dark' || savedUiMode === 'light') setAppUiMode(savedUiMode);
+
+      const savedApiKey = localStorage.getItem('carouselx_api_key');
+      const savedProvider = localStorage.getItem('carouselx_ai_provider') as any;
+      const savedModel = localStorage.getItem('carouselx_ai_model');
+      const savedBaseUrl = localStorage.getItem('carouselx_ai_base_url');
+
+      if (savedApiKey || savedProvider) {
+        setApiKeyConfig({
+          provider: savedProvider || 'gemini',
+          apiKey: savedApiKey || '',
+          model: savedModel || (savedProvider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'gemini-2.5-flash'),
+          baseUrl: savedBaseUrl || undefined,
+        });
       }
-
-      const savedTheme = localStorage.getItem('carouselx_theme');
-      if (savedTheme && THEMES[savedTheme as ThemeId]) setCurrentTheme(savedTheme as ThemeId);
-
-      const savedFont = localStorage.getItem('carouselx_font');
-      if (savedFont) setCurrentFont(savedFont as FontId);
-
-      const savedUiMode = localStorage.getItem('carouselx_ui_mode');
-      if (savedUiMode === 'light' || savedUiMode === 'dark') setAppUiMode(savedUiMode);
-
-      const token = getStoredGoogleToken();
-      if (token) setIsGoogleConnected(true);
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn('Failed reading from localStorage', e);
     }
   }, []);
 
-  // Save creator branding permanently
-  useEffect(() => {
+  // Save branding updates to localStorage
+  const handleAuthorNameChange = (val: string) => {
+    setAuthorName(val);
     try {
-      localStorage.setItem('carouselx_author_name', authorName);
-    } catch {
-      // ignore
-    }
-  }, [authorName]);
+      localStorage.setItem('carouselx_author_name', val);
+    } catch {}
+  };
 
-  useEffect(() => {
+  const handleAuthorHandleChange = (val: string) => {
+    setAuthorHandle(val);
     try {
-      localStorage.setItem('carouselx_author_handle', authorHandle);
-    } catch {
-      // ignore
-    }
-  }, [authorHandle]);
-
-  const handleSaveApiKeyConfig = (newConfig: ApiKeyConfig) => {
-    setApiKeyConfig(newConfig);
-    try {
-      localStorage.setItem('carouselx_ai_config', JSON.stringify(newConfig));
-      if (newConfig.apiKey) {
-        localStorage.setItem('carouselx_gemini_key', newConfig.apiKey);
-      }
-    } catch {
-      // ignore
-    }
-    setStatusType('success');
-    setStatusMessage(`Konfigurasi Provider ${newConfig.provider.toUpperCase()} tersimpan!`);
-    setTimeout(() => setStatusMessage(''), 2500);
+      localStorage.setItem('carouselx_author_handle', val);
+    } catch {}
   };
 
   const handleThemeChange = (newTheme: ThemeId) => {
     setCurrentTheme(newTheme);
     try {
       localStorage.setItem('carouselx_theme', newTheme);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   const handleFontChange = (newFont: FontId) => {
     setCurrentFont(newFont);
     try {
       localStorage.setItem('carouselx_font', newFont);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   const handleToggleUiMode = () => {
@@ -181,29 +146,23 @@ export default function App() {
     setAppUiMode(nextMode);
     try {
       localStorage.setItem('carouselx_ui_mode', nextMode);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleConnectGoogle = async () => {
+  const handleSaveApiKeyConfig = (newConfig: ApiKeyConfig) => {
+    setApiKeyConfig(newConfig);
     try {
-      setStatusType('info');
-      setStatusMessage('Menghubungkan ke Google Workspace...');
-      await authenticateGoogle();
-      setIsGoogleConnected(true);
-      setStatusType('success');
-      setStatusMessage('Berhasil terhubung ke Google Drive & Sheets!');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } catch (err: any) {
-      console.error(err);
-      setStatusType('error');
-      setStatusMessage(err.message || 'Gagal otentikasi Google Workspace.');
-      setTimeout(() => setStatusMessage(''), 4000);
-    }
+      localStorage.setItem('carouselx_api_key', newConfig.apiKey || '');
+      localStorage.setItem('carouselx_ai_provider', newConfig.provider);
+      if (newConfig.model) localStorage.setItem('carouselx_ai_model', newConfig.model);
+      if (newConfig.baseUrl) localStorage.setItem('carouselx_ai_base_url', newConfig.baseUrl);
+    } catch {}
+    setStatusType('success');
+    setStatusMessage(`Konfigurasi ${newConfig.provider.toUpperCase()} berhasil disimpan!`);
+    setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  // Generate Carousel with AI (using active provider)
+  // Generate Carousel with AI (Client Fallback safe)
   const handleGenerateCarousel = async () => {
     if (!topic.trim()) {
       setStatusType('error');
@@ -217,43 +176,27 @@ export default function App() {
     setStatusMessage(`Membuat ${slideCount} slide dengan ${apiKeyConfig.provider.toUpperCase()} AI...`);
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (apiKeyConfig.apiKey) {
-        headers['x-gemini-key'] = apiKeyConfig.apiKey;
-      }
-
-      const res = await fetch('/api/generate-carousel', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          topic,
-          slideCount,
-          tone,
-          language,
-          authorName: authorHandle || authorName,
-          provider: apiKeyConfig.provider,
-          apiKey: apiKeyConfig.apiKey,
-          model: apiKeyConfig.model,
-          baseUrl: apiKeyConfig.baseUrl,
-        }),
+      const result = await generateCarouselAI({
+        topic,
+        slideCount,
+        tone,
+        language,
+        authorName: authorHandle || authorName,
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-
-      if (data.slides && data.slides.length > 0) {
-        setSlides(data.slides);
+      if (result.slides && result.slides.length > 0) {
+        setSlides(result.slides);
         setActiveSlideIndex(0);
         setMobileView('preview');
         setStatusType('success');
         setStatusMessage(
-          data.isFallback
+          result.isFallback
             ? 'Format template siap digunakan.'
-            : `✓ ${data.slides.length} slide berhasil dibuat dengan ${apiKeyConfig.provider.toUpperCase()}!`
+            : `✓ ${result.slides.length} slide berhasil dibuat dengan ${apiKeyConfig.provider.toUpperCase()}!`
         );
       } else {
-        throw new Error(data.error || 'Gagal menghasilkan slide.');
+        throw new Error(result.error || 'Gagal menghasilkan slide.');
       }
     } catch (err: any) {
       console.error(err);
@@ -265,18 +208,6 @@ export default function App() {
     }
   };
 
-  // Apply written / summarized content to carousel
-  const handleApplyWrittenContent = (newSlides: Slide[], newTopic: string) => {
-    setSlides(newSlides);
-    if (newTopic) setTopic(newTopic);
-    setSlideCount(newSlides.length);
-    setActiveSlideIndex(0);
-    setMobileView('preview');
-    setStatusType('success');
-    setStatusMessage(`Berhasil menyusun ${newSlides.length} slide dari draf tulisan!`);
-    setTimeout(() => setStatusMessage(''), 3000);
-  };
-
   // AI Polish single slide inline
   const handleInlineAiPolish = async (index: number) => {
     const target = slides[index];
@@ -284,24 +215,17 @@ export default function App() {
 
     setPolishingIndex(index);
     try {
-      const res = await fetch('/api/structure-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawContent: `Slide Type: ${target.type}\nTitle: ${target.title}\nBody: ${target.body}\nPoints: ${(target.points || []).join(', ')}`,
-          slideCount: 1,
-          language,
-          authorName: authorHandle || authorName,
-          provider: apiKeyConfig.provider,
-          apiKey: apiKeyConfig.apiKey,
-          model: apiKeyConfig.model,
-          baseUrl: apiKeyConfig.baseUrl,
-        }),
+      const rawContent = `Slide Type: ${target.type}\nTitle: ${target.title}\nBody: ${target.body}\nPoints: ${(target.points || []).join(', ')}`;
+      const result = await structureContentAI({
+        rawContent,
+        slideCount: 1,
+        language,
+        authorName: authorHandle || authorName,
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-      if (data.slides && data.slides[0]) {
-        const polished = data.slides[0];
+      if (result.slides && result.slides[0]) {
+        const polished = result.slides[0];
         const updated = [...slides];
         updated[index] = {
           ...target,
@@ -324,24 +248,17 @@ export default function App() {
   // AI Polish inside Slide Editor Modal
   const handleModalAiPolish = async (slide: Slide): Promise<Slide> => {
     try {
-      const res = await fetch('/api/structure-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawContent: `Title: ${slide.title}\nBody: ${slide.body}\nPoints: ${(slide.points || []).join(', ')}`,
-          slideCount: 1,
-          language,
-          authorName: authorHandle || authorName,
-          provider: apiKeyConfig.provider,
-          apiKey: apiKeyConfig.apiKey,
-          model: apiKeyConfig.model,
-          baseUrl: apiKeyConfig.baseUrl,
-        }),
+      const rawContent = `Title: ${slide.title}\nBody: ${slide.body}\nPoints: ${(slide.points || []).join(', ')}`;
+      const result = await structureContentAI({
+        rawContent,
+        slideCount: 1,
+        language,
+        authorName: authorHandle || authorName,
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-      if (data.slides && data.slides[0]) {
-        const p = data.slides[0];
+      if (result.slides && result.slides[0]) {
+        const p = result.slides[0];
         return {
           ...slide,
           title: p.title || slide.title,
@@ -355,107 +272,77 @@ export default function App() {
     return slide;
   };
 
-  // Reorder slides
-  const handleMoveSlide = (index: number, direction: 'up' | 'down') => {
-    const targetIdx = direction === 'up' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= slides.length) return;
-
-    const updated = [...slides];
-    const temp = updated[index];
-    updated[index] = updated[targetIdx];
-    updated[targetIdx] = temp;
-
-    // Recalculate slide numbers
-    const finalSlides = updated.map((s, idx) => ({ ...s, slide_number: idx + 1 }));
-    setSlides(finalSlides);
-  };
-
-  // Duplicate slide
-  const handleDuplicateSlide = (index: number) => {
-    const slideToDup = slides[index];
-    if (!slideToDup) return;
-    const duplicated: Slide = {
-      ...slideToDup,
-      id: `slide-dup-${Date.now()}`,
-      title: `${slideToDup.title} (Salinan)`,
-    };
-    const updated = [...slides.slice(0, index + 1), duplicated, ...slides.slice(index + 1)].map((s, idx) => ({
-      ...s,
-      slide_number: idx + 1,
-    }));
-    setSlides(updated);
-    setSlideCount(updated.length);
-    setStatusType('success');
-    setStatusMessage(`Slide #${index + 1} berhasil diduplikasi!`);
-    setTimeout(() => setStatusMessage(''), 2000);
-  };
-
-  // Delete slide
-  const handleDeleteSlide = (index: number) => {
-    if (slides.length <= 1) {
-      setStatusType('error');
-      setStatusMessage('Carousel harus memiliki minimal 1 slide.');
-      setTimeout(() => setStatusMessage(''), 2500);
-      return;
-    }
-    const updated = slides.filter((_, i) => i !== index).map((s, idx) => ({ ...s, slide_number: idx + 1 }));
-    setSlides(updated);
-    setSlideCount(updated.length);
-  };
-
-  // Add new slide
+  // Add new blank slide
   const handleAddSlide = () => {
-    const newSlideNumber = slides.length + 1;
+    const newIdx = slides.length + 1;
     const newSlide: Slide = {
       id: `slide-custom-${Date.now()}`,
-      slide_number: newSlideNumber,
+      slide_number: newIdx,
       type: 'content',
-      badge: `Langkah 0${newSlideNumber - 1}`,
-      title: 'Judul Slide Baru',
-      body: 'Tambahkan penjelasan berbobot di sini agar slide kamu informatif dan mudah dipahami pembaca.',
-      points: ['Poin utama pertama', 'Poin pendukung kedua', 'Contoh praktis ketiga'],
-      footer_hint: 'Geser 👉',
+      badge: `Langkah 0${newIdx - 1}`,
+      stepBadge: `STEP 0${newIdx - 1} · AKSI`,
+      title: 'Judul Poin Pembahasan Baru',
+      highlightWord: 'Pembahasan Baru',
+      body: 'Jelaskan inti pesan Anda secara ringkas dan lugas di sini agar pembaca langsung paham.',
+      points: ['Poin penting pertama', 'Poin penting kedua', 'Langkah eksekusi'],
+      footer_hint: 'Lanjut ke slide berikutnya 👉',
     };
     setSlides([...slides, newSlide]);
     setSlideCount(slides.length + 1);
     setActiveSlideIndex(slides.length);
   };
 
-  // Render high-res PNG blobs for export
+  // Delete slide
+  const handleDeleteSlide = (idx: number) => {
+    if (slides.length <= 1) {
+      alert('Carousel harus memiliki minimal 1 slide.');
+      return;
+    }
+    const filtered = slides.filter((_, i) => i !== idx).map((s, i) => ({
+      ...s,
+      slide_number: i + 1,
+    }));
+    setSlides(filtered);
+    setSlideCount(filtered.length);
+    setActiveSlideIndex(Math.max(0, idx - 1));
+  };
+
+  // Reorder slides
+  const handleMoveSlide = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= slides.length) return;
+    const updated = [...slides];
+    const [moved] = updated.splice(fromIndex, 1);
+    updated.splice(toIndex, 0, moved);
+    const renumbered = updated.map((s, i) => ({ ...s, slide_number: i + 1 }));
+    setSlides(renumbered);
+    setActiveSlideIndex(toIndex);
+  };
+
+  // Render individual slide DOM nodes to High-Res Blobs
   const renderSlideBlobs = async (): Promise<{ filename: string; blob: Blob; dataUrl: string }[]> => {
     const results: { filename: string; blob: Blob; dataUrl: string }[] = [];
 
     for (let i = 0; i < slides.length; i++) {
-      const node =
-        document.getElementById(`carousel-slide-${i}`) ||
-        document.getElementById(`slide-card-${i}`) ||
-        document.querySelector(`[data-slide-index="${i}"]`);
+      const node = slideRefs.current[i];
+      if (!node) continue;
 
-      if (!node) {
-        console.warn(`Elemen slide index ${i} tidak ditemukan di DOM.`);
-        continue;
+      try {
+        const dataUrl = await toPng(node, {
+          pixelRatio: 3,
+          cacheBust: true,
+          quality: 0.98,
+        });
+
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        results.push({
+          filename: `slide_${i + 1}.png`,
+          blob,
+          dataUrl,
+        });
+      } catch (err) {
+        console.error(`Failed rendering slide ${i + 1}:`, err);
       }
-
-      const dataUrl = await toPng(node as HTMLElement, {
-        pixelRatio: 2.5,
-        cacheBust: true,
-        quality: 0.98,
-        filter: (child: HTMLElement) => {
-          if (child.classList && child.classList.contains('slide-action-overlay')) {
-            return false;
-          }
-          return true;
-        },
-      });
-
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      const filename = `Slide_${String(i + 1).padStart(2, '0')}.png`;
-      results.push({ filename, blob, dataUrl });
-    }
-
-    if (results.length === 0) {
-      throw new Error('Tidak ada elemen slide yang berhasil dirender. Pastikan tampilan carousel terbuka.');
     }
 
     return results;
@@ -466,7 +353,7 @@ export default function App() {
   const isDarkUi = appUiMode === 'dark';
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
+    <div className={`flex flex-col h-screen w-screen overflow-hidden select-none font-sans ${
       isDarkUi ? 'bg-[#0a0a0d] text-gray-100' : 'bg-[#f4f5f8] text-gray-900'
     }`}>
       {/* Top Navbar */}
@@ -481,13 +368,8 @@ export default function App() {
         onFontChange={handleFontChange}
         appUiMode={appUiMode}
         onToggleAppUiMode={handleToggleUiMode}
-        isGoogleConnected={isGoogleConnected}
-        onConnectGoogle={handleConnectGoogle}
         onOpenExportModal={() => setIsExportModalOpen(true)}
-        onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
-        onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
         onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
-        onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
         onOpenMaterialIngest={() => setIsMaterialModalOpen(true)}
         apiKeyConfig={apiKeyConfig}
         slideCount={slides.length}
@@ -551,41 +433,41 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setMobileView('sidebar')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 min-h-[40px] text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
                   mobileView === 'sidebar'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : isDarkUi ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <Wand2 className="w-3.5 h-3.5" />
-                <span>Prompt & Opsi AI</span>
+                <Wand2 className="w-4 h-4" />
+                <span>Pengaturan Slide</span>
               </button>
               <button
                 type="button"
                 onClick={() => setMobileView('preview')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                className={`flex-1 py-2 min-h-[40px] text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
                   mobileView === 'preview'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : isDarkUi ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-4 h-4" />
                 <span>Preview ({slides.length})</span>
               </button>
             </div>
           </div>
 
           {/* Left Controls Sidebar (Visible when mobileView === 'sidebar' OR desktop >= md) */}
-          <div className={`${mobileView === 'sidebar' ? 'flex' : 'hidden'} md:flex h-full md:w-84 lg:w-[320px] shrink-0`}>
+          <div className={`${mobileView === 'sidebar' ? 'flex' : 'hidden'} md:flex h-full md:w-80 lg:w-[310px] shrink-0`}>
             <Sidebar
               topic={topic}
               onTopicChange={setTopic}
               slideCount={slideCount}
               onSlideCountChange={setSlideCount}
               authorName={authorName}
-              onAuthorNameChange={setAuthorName}
+              onAuthorNameChange={handleAuthorNameChange}
               authorHandle={authorHandle}
-              onAuthorHandleChange={setAuthorHandle}
+              onAuthorHandleChange={handleAuthorHandleChange}
               tone={tone}
               onToneChange={setTone}
               language={language}
@@ -598,131 +480,110 @@ export default function App() {
               onAspectRatioChange={setAspectRatio}
               isGenerating={isGenerating}
               onGenerate={handleGenerateCarousel}
-              onOpenSlidesExport={() => setGoogleModal({ isOpen: true, mode: 'slides_export' })}
-              onOpenSlidesImport={() => setGoogleModal({ isOpen: true, mode: 'slides_import' })}
-              onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
-              onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
-              onOpenSheetsImport={() => setGoogleModal({ isOpen: true, mode: 'sheets_import' })}
-              onOpenContentWritingModal={() => setIsContentWritingModalOpen(true)}
               onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
               onOpenMaterialIngest={() => setIsMaterialModalOpen(true)}
               apiKeyConfig={apiKeyConfig}
-              isGoogleConnected={isGoogleConnected}
-              onConnectGoogle={handleConnectGoogle}
               onSelectPreset={(preset) => {
                 setTopic(preset.topic);
                 setSlides(preset.slides);
                 setSlideCount(preset.slides.length);
-                // Keep permanent creator branding intact (Arijal Meutuwah / @abangjal)
                 if (!authorName) setAuthorName(preset.authorName || 'Arijal Meutuwah');
                 if (!authorHandle) setAuthorHandle(preset.authorHandle || '@abangjal');
                 setCurrentTheme(preset.themeId);
                 setCurrentFont(preset.fontId);
-                setMobileView('preview');
-                setStatusType('success');
-                setStatusMessage(`Template "${preset.name}" berhasil dimuat!`);
-                setTimeout(() => setStatusMessage(''), 2500);
               }}
             />
           </div>
 
-          {/* Right Main Slide Canvas Area (Visible when mobileView === 'preview' OR desktop >= md) */}
-          <main className={`${mobileView === 'preview' ? 'flex' : 'hidden'} md:flex flex-1 flex-col justify-between p-3 sm:p-6 overflow-hidden ${
-            isDarkUi ? 'bg-[#0a0a0d]' : 'bg-[#f4f5f8]'
+          {/* Center / Right Slide Preview & Canvas */}
+          <main className={`flex-1 flex flex-col h-full overflow-y-auto relative ${
+            mobileView === 'preview' ? 'flex' : 'hidden md:flex'
           }`}>
-            {/* Header info */}
-            <div className="flex items-center justify-between mb-3 sm:mb-4 shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-500">
-                  Slide Preview ({slides.length} Slide)
+            {/* Top Toolbar in Preview Mode */}
+            <div className={`p-3 sm:p-4 border-b flex items-center justify-between z-10 shrink-0 ${
+              isDarkUi ? 'bg-[#111114]/90 border-[#1f1f23]' : 'bg-white/90 border-gray-200'
+            } backdrop-blur-md`}>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider hidden sm:inline">
+                  Slide:
                 </span>
-                <span className="text-[11px] text-gray-500 hidden sm:inline">
-                  • Geser horizontal untuk melihat semua slide
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Switch to E-Book Studio Quick Button */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('ebook')}
-                  className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600/20 to-indigo-600/20 hover:from-blue-600/30 hover:to-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1.5"
-                >
-                  <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="hidden sm:inline">Lihat Format E-Book</span>
-                  <span className="sm:hidden">E-Book</span>
-                </button>
-
+                {slides.map((s, idx) => (
+                  <button
+                    key={s.id || idx}
+                    type="button"
+                    onClick={() => setActiveSlideIndex(idx)}
+                    className={`min-h-[36px] min-w-[36px] px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition ${
+                      activeSlideIndex === idx
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                        : isDarkUi
+                        ? 'bg-[#18181d] text-gray-400 border-[#2d2d35] hover:text-white'
+                        : 'bg-gray-100 text-gray-700 border-gray-300 hover:text-black'
+                    }`}
+                  >
+                    0{idx + 1}
+                  </button>
+                ))}
                 <button
                   type="button"
                   onClick={handleAddSlide}
-                  className="px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition flex items-center gap-1.5"
+                  title="Tambah Slide Baru"
+                  className="min-h-[36px] min-w-[36px] p-1.5 rounded-lg border border-dashed border-gray-600 hover:border-blue-500 text-gray-400 hover:text-blue-400 flex items-center justify-center transition"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tambah Slide</span>
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(true)}
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-md shadow-blue-600/20 transition flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Slide</span>
                 </button>
               </div>
             </div>
 
-            {/* Horizontal Slide Scroll Container */}
-            <div
-              ref={previewScrollRef}
-              className="flex-1 flex items-center gap-4 sm:gap-6 overflow-x-auto py-2 sm:py-4 px-1 sm:px-2 no-scrollbar scroll-smooth snap-x snap-mandatory"
-            >
-              {slides.map((slide, index) => (
-                <SlideCard
-                  key={slide.id || index}
-                  slide={slide}
-                  index={index}
-                  totalSlides={slides.length}
-                  theme={activeTheme}
-                  font={activeFont}
-                  aspectRatio={aspectRatio}
-                  authorName={authorName}
-                  authorHandle={authorHandle}
-                  onEdit={() => {
-                    setEditingSlide(slide);
-                    setEditingIndex(index);
-                  }}
-                  onDuplicate={(idx) => handleDuplicateSlide(idx)}
-                  onDelete={(idx) => handleDeleteSlide(idx)}
-                  onMoveLeft={(idx) => handleMoveSlide(idx, 'up')}
-                  onMoveRight={(idx) => handleMoveSlide(idx, 'down')}
-                  onQuickAiPolish={(s, idx) => handleInlineAiPolish(idx)}
-                  isPolishing={polishingIndex === index}
-                />
-              ))}
-            </div>
-
-            {/* Pagination Navigation Dots */}
-            {slides.length > 1 && (
-              <div className="mt-2 sm:mt-3 flex justify-center items-center gap-1.5 shrink-0">
-                {slides.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      if (previewScrollRef.current) {
-                        const cardWidth = aspectRatio === '4:5' ? 334 : 374;
-                        previewScrollRef.current.scrollTo({
-                          left: i * cardWidth,
-                          behavior: 'smooth',
-                        });
-                      }
-                      setActiveSlideIndex(i);
+            {/* Slide Canvas Cards View */}
+            <div className="flex-1 p-4 sm:p-8 flex flex-col items-center justify-start gap-8 overflow-y-auto">
+              <div className="w-full max-w-md mx-auto space-y-6">
+                {slides.map((slide, idx) => (
+                  <div
+                    key={slide.id || idx}
+                    ref={(el) => {
+                      slideRefs.current[idx] = el;
                     }}
-                    className={`h-1.5 sm:h-2 rounded-full transition-all duration-300 ${
-                      activeSlideIndex === i
-                        ? 'w-6 sm:w-8 bg-blue-500 shadow-sm shadow-blue-500/50'
-                        : isDarkUi
-                        ? 'w-1.5 sm:w-2 bg-gray-700 hover:bg-gray-500'
-                        : 'w-1.5 sm:w-2 bg-gray-300 hover:bg-gray-400'
+                    className={`transition-all duration-200 ${
+                      activeSlideIndex === idx
+                        ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-[#0a0a0d] rounded-2xl scale-[1.01]'
+                        : 'opacity-90 hover:opacity-100'
                     }`}
-                    title={`Lompat ke slide ${i + 1}`}
-                  />
+                    onClick={() => setActiveSlideIndex(idx)}
+                  >
+                    <SlideCard
+                      slide={slide}
+                      index={idx}
+                      totalSlides={slides.length}
+                      aspectRatio={aspectRatio}
+                      theme={activeTheme}
+                      font={activeFont}
+                      authorName={authorName}
+                      authorHandle={authorHandle}
+                      isPolishing={polishingIndex === idx}
+                      onEdit={() => {
+                        setEditingSlide(slide);
+                        setEditingIndex(idx);
+                      }}
+                      onDelete={() => handleDeleteSlide(idx)}
+                      onMoveUp={() => handleMoveSlide(idx, idx - 1)}
+                      onMoveDown={() => handleMoveSlide(idx, idx + 1)}
+                      onAiPolish={() => handleInlineAiPolish(idx)}
+                    />
+                  </div>
                 ))}
               </div>
-            )}
+            </div>
           </main>
         </div>
       )}
@@ -734,15 +595,6 @@ export default function App() {
         config={apiKeyConfig}
         onSaveConfig={handleSaveApiKeyConfig}
         hasEnvKey={true}
-      />
-
-      {/* Content Writing Scratchpad Modal */}
-      <ContentWritingModal
-        isOpen={isContentWritingModalOpen}
-        onClose={() => setIsContentWritingModalOpen(false)}
-        onApplySlides={handleApplyWrittenContent}
-        authorName={authorHandle || authorName}
-        customApiKey={apiKeyConfig.apiKey}
       />
 
       {/* Slide Editor Modal */}
@@ -760,34 +612,6 @@ export default function App() {
         onAiPolish={handleModalAiPolish}
       />
 
-      {/* Google Workspace Modal (Slides, Drive & Sheets) */}
-      <GoogleSyncModal
-        isOpen={googleModal.isOpen}
-        initialMode={googleModal.mode}
-        topic={topic}
-        slides={slides}
-        authorName={authorName}
-        authorHandle={authorHandle}
-        onClose={() => setGoogleModal({ ...googleModal, isOpen: false })}
-        onSelectImportedTopic={(selectedTopic, count) => {
-          setTopic(selectedTopic);
-          if (count) setSlideCount(count);
-          setStatusType('info');
-          setStatusMessage(`Topik dipilih: "${selectedTopic}". Klik Generate untuk memulai.`);
-        }}
-        onImportSlides={(imported) => {
-          if (imported.slides && imported.slides.length > 0) {
-            setTopic(imported.topic);
-            setSlides(imported.slides);
-            setSlideCount(imported.slides.length);
-            setStatusType('success');
-            setStatusMessage(`Berhasil mengimpor ${imported.slides.length} slide dari Google Slides!`);
-            setTimeout(() => setStatusMessage(''), 3000);
-          }
-        }}
-        renderSlideBlobs={renderSlideBlobs}
-      />
-
       {/* Main Export & Download Modal */}
       <ExportModal
         isOpen={isExportModalOpen}
@@ -799,9 +623,6 @@ export default function App() {
         font={activeFont}
         aspectRatio={aspectRatio}
         onClose={() => setIsExportModalOpen(false)}
-        onOpenSlidesExport={() => setGoogleModal({ isOpen: true, mode: 'slides_export' })}
-        onOpenDriveExport={() => setGoogleModal({ isOpen: true, mode: 'drive_export' })}
-        onOpenSheetsSync={() => setGoogleModal({ isOpen: true, mode: 'sheets_sync' })}
         onSwitchToEbook={() => setActiveTab('ebook')}
         renderSlideBlobs={renderSlideBlobs}
       />

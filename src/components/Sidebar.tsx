@@ -3,28 +3,15 @@ import {
   Wand2,
   Sparkles,
   RefreshCw,
-  User,
-  Palette,
-  FileSpreadsheet,
   Lightbulb,
-  Check,
-  AlertCircle,
-  Plus,
-  Type,
-  FileEdit,
-  Sun,
-  Moon,
   Cpu,
-  Layers,
-  HardDrive,
-  Table,
-  RotateCcw,
+  User,
   ShieldCheck,
-  Presentation
+  RotateCcw,
+  Layers
 } from 'lucide-react';
-import { ThemeId, FontId, AspectRatio, ApiKeyConfig } from '../types';
-import { THEMES, FONT_OPTIONS } from '../constants/themes';
-import { SAMPLE_PRESETS, CarouselPreset } from '../data/samplePresets';
+import { AspectRatio, ThemeId, FontId, ApiKeyConfig, CarouselPreset } from '../types';
+import { SAMPLE_PRESETS } from '../data/samplePresets';
 
 interface SidebarProps {
   topic: string;
@@ -47,16 +34,8 @@ interface SidebarProps {
   onAspectRatioChange: (ratio: AspectRatio) => void;
   isGenerating: boolean;
   onGenerate: () => void;
-  onOpenSlidesExport?: () => void;
-  onOpenSlidesImport?: () => void;
-  onOpenDriveExport?: () => void;
-  onOpenSheetsSync?: () => void;
-  onOpenSheetsImport: () => void;
-  onOpenContentWritingModal: () => void;
   onOpenApiKeyModal: () => void;
   apiKeyConfig?: ApiKeyConfig;
-  isGoogleConnected?: boolean;
-  onConnectGoogle?: () => void;
   onSelectPreset?: (preset: CarouselPreset) => void;
   onOpenMaterialIngest?: () => void;
 }
@@ -99,24 +78,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToneChange,
   language,
   onLanguageChange,
-  currentTheme,
-  onThemeChange,
-  currentFont,
-  onFontChange,
-  aspectRatio,
-  onAspectRatioChange,
   isGenerating,
   onGenerate,
-  onOpenSlidesExport,
-  onOpenSlidesImport,
-  onOpenDriveExport,
-  onOpenSheetsSync,
-  onOpenSheetsImport,
-  onOpenContentWritingModal,
   onOpenApiKeyModal,
   apiKeyConfig,
-  isGoogleConnected,
-  onConnectGoogle,
   onSelectPreset,
   onOpenMaterialIngest,
 }) => {
@@ -125,33 +90,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const activeProvider = apiKeyConfig?.provider || 'gemini';
 
   return (
-    <aside className="w-full md:w-84 lg:w-[320px] border-r border-[#1f1f23] bg-[#111114] text-gray-200 flex flex-col h-full overflow-y-auto shrink-0 z-20 transition-colors duration-200">
-      <div className="p-4 sm:p-5 flex-1 space-y-5">
-        {/* Ingest Materi Multi-Source Pipeline Banner */}
+    <aside className="w-full md:w-80 lg:w-[310px] border-r border-[#1f1f23] bg-[#111114] text-gray-200 flex flex-col h-full overflow-y-auto shrink-0 z-20 transition-colors duration-200">
+      <div className="p-4 sm:p-5 flex-1 space-y-4">
+        {/* Main Action: Unified Material & Content Ingestion Banner */}
         {onOpenMaterialIngest && (
-          <div className="p-3.5 rounded-xl border bg-gradient-to-r from-blue-900/30 via-indigo-900/30 to-purple-900/30 border-indigo-500/40 shadow-lg shadow-indigo-950/40 flex items-center justify-between transition hover:border-indigo-400">
+          <div className="p-3.5 rounded-2xl border bg-gradient-to-r from-blue-900/30 via-indigo-900/30 to-purple-900/30 border-indigo-500/40 shadow-lg shadow-indigo-950/40 flex items-center justify-between transition hover:border-indigo-400 group">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 group-hover:scale-105 transition">
                 <Sparkles className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-bold text-white tracking-tight">Ingest Materi (AI Hub)</p>
-                <p className="text-[10px] text-indigo-300">YouTube, Web, PDF, Teks</p>
+                <p className="text-xs font-bold text-white tracking-tight">Ingest Materi AI</p>
+                <p className="text-[10px] text-indigo-300">Teks, YouTube, Web URL, PDF</p>
               </div>
             </div>
             <button
               type="button"
               onClick={onOpenMaterialIngest}
-              className="px-3 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-md shadow-indigo-600/30"
+              className="px-3 py-1.5 min-h-[36px] text-xs font-bold bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl transition shadow-md shadow-indigo-600/30 flex items-center gap-1"
             >
-              Mulai
+              <span>Buka</span>
+              <span className="text-[10px]">✨</span>
             </button>
           </div>
         )}
 
         {/* AI Provider Status Card */}
         <div className="p-3 rounded-xl bg-[#18181d] border border-[#2d2d35] flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center">
               <Cpu className="w-3.5 h-3.5" />
             </div>
@@ -160,36 +126,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {activeProvider} AI
               </p>
               <p className="text-[10px] text-gray-400">
-                {apiKeyConfig?.apiKey ? 'Custom API Key' : 'Default Studio Key'}
+                {apiKeyConfig?.apiKey ? 'Custom API Key' : 'Default Key Ready'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onOpenApiKeyModal}
-            className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold underline"
+            className="text-xs text-blue-400 hover:text-blue-300 font-semibold px-2 py-1 rounded-lg hover:bg-blue-950/30 transition"
           >
-            Ubah
-          </button>
-        </div>
-
-        {/* Content Box Quick Action Banner */}
-        <div className="p-3 rounded-xl border bg-blue-950/20 border-blue-500/25 flex items-center justify-between transition">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-500 flex items-center justify-center">
-              <FileEdit className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-white">Tulis Konten Sendiri</p>
-              <p className="text-[10px] text-gray-400">Ketik/tempel naskah bebas</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenContentWritingModal}
-            className="px-2.5 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
-          >
-            Buka Box
+            Pengaturan
           </button>
         </div>
 
@@ -199,14 +145,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-blue-400" />
-                Template Viral Presets
+                Template Presets
               </label>
               <button
                 type="button"
                 onClick={() => setShowPresets(!showPresets)}
                 className="text-[10px] uppercase font-bold tracking-wider text-blue-400 hover:text-blue-300 transition"
               >
-                {showPresets ? 'Sembunyikan' : 'Pilih Template'}
+                {showPresets ? 'Tutup' : 'Pilih Template'}
               </button>
             </div>
 
@@ -293,7 +239,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
               Jumlah Slide
             </span>
-            <span className="font-bold text-blue-400 font-mono bg-blue-500/10 px-2 py-0.5 rounded-md">
+            <span className="font-bold text-blue-400 font-mono bg-blue-500/10 px-2.5 py-0.5 rounded-md">
               {slideCount} Slide
             </span>
           </div>
@@ -303,7 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             max={10}
             value={slideCount}
             onChange={(e) => onSlideCountChange(parseInt(e.target.value, 10))}
-            className="w-full accent-blue-600 bg-[#2d2d35] h-1.5 rounded-lg cursor-pointer"
+            className="w-full accent-blue-600 bg-[#2d2d35] h-2 rounded-lg cursor-pointer"
           />
           <div className="flex justify-between text-[10px] text-gray-500 font-mono">
             <span>3 (Ringkas)</span>
@@ -349,7 +295,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Author / Creator Branding (Permanent Default) */}
+        {/* Author / Creator Branding */}
         <div className="space-y-2 pt-2 border-t border-[#1f1f23]">
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -390,34 +336,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )}
         </div>
-
-        {/* Google Workspace Hub Quick Actions */}
-        <div className="pt-2 border-t border-[#1f1f23] space-y-2">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400">
-            <span>Google Workspace Hub</span>
-            <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono">Slides + Sheets</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={onOpenSlidesExport}
-              className="py-2 px-2.5 rounded-xl border border-amber-500/30 bg-amber-950/20 hover:bg-amber-950/40 text-amber-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
-            >
-              <Presentation className="w-3.5 h-3.5 text-amber-400" />
-              <span>Slides Deck</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onOpenSheetsImport}
-              className="py-2 px-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 hover:bg-emerald-950/40 text-emerald-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Import Sheet</span>
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Bottom Sticky Generate Button */}
@@ -427,7 +345,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id="generate-carousel-btn"
           disabled={isGenerating}
           onClick={onGenerate}
-          className="w-full py-3 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-600/25 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+          className="w-full min-h-[48px] py-3 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.98] shadow-lg shadow-blue-600/25 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
         >
           {isGenerating ? (
             <>

@@ -4,8 +4,6 @@ import {
   Download,
   FileArchive,
   FileCode,
-  HardDrive,
-  Table,
   Copy,
   Check,
   RefreshCw,
@@ -13,7 +11,6 @@ import {
   Sparkles,
   BookOpen,
   Printer,
-  Presentation
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import JSZip from 'jszip';
@@ -33,9 +30,9 @@ interface ExportModalProps {
   font?: FontOption;
   aspectRatio: AspectRatio;
   onClose: () => void;
-  onOpenSlidesExport: () => void;
-  onOpenDriveExport: () => void;
-  onOpenSheetsSync: () => void;
+  onOpenSlidesExport?: () => void;
+  onOpenDriveExport?: () => void;
+  onOpenSheetsSync?: () => void;
   onSwitchToEbook?: () => void;
   renderSlideBlobs: () => Promise<{ filename: string; blob: Blob; dataUrl: string }[]>;
 }
@@ -352,7 +349,7 @@ Semoga bermanfaat! 🚀
             </div>
             <div>
               <h3 className="font-bold text-base text-white">Export Carousel & E-Book</h3>
-              <p className="text-[11px] text-gray-400">Unduh gambar HD, HTML interaktif, E-Book PDF, atau ke Google Drive</p>
+              <p className="text-[11px] text-gray-400">Unduh gambar HD, HTML interaktif, E-Book PDF, atau ZIP bundle komplit</p>
             </div>
           </div>
           <button
@@ -397,29 +394,6 @@ Semoga bermanfaat! 🚀
               </div>
             </button>
 
-            {/* Direct Export to Google Slides Deck */}
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={() => {
-                onClose();
-                onOpenSlidesExport();
-              }}
-              className="p-3.5 rounded-xl bg-[#1a1a1f] border border-amber-500/30 hover:border-amber-400 hover:bg-[#25252c] text-left transition group flex flex-col justify-between"
-            >
-              <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center mb-2.5 group-hover:scale-110 transition">
-                <Presentation className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-xs text-white group-hover:text-amber-300 flex items-center gap-1">
-                  <span>Ekspor ke Google Slides</span>
-                  <span className="text-[9px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 rounded font-mono font-bold">DECK</span>
-                </div>
-                <div className="text-[11px] text-gray-400 mt-0.5">
-                  Buat presentasi deck Google Slides resmi terformat otomatis
-                </div>
-              </div>
-            </button>
 
             {/* Download Standalone HTML Carousel */}
             <button
@@ -505,29 +479,6 @@ Semoga bermanfaat! 🚀
               </div>
             </button>
 
-            {/* Save to Google Drive */}
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={() => {
-                onClose();
-                onOpenDriveExport();
-              }}
-              className="p-3.5 rounded-xl bg-[#1a1a1f] border border-[#2d2d35] hover:border-blue-400/50 hover:bg-[#25252c] text-left transition group flex flex-col justify-between"
-            >
-              <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center mb-2.5 group-hover:scale-110 transition">
-                <HardDrive className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-xs text-white group-hover:text-blue-300 flex items-center gap-1">
-                  <span>Simpan ke Google Drive</span>
-                  <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/20 text-blue-300 rounded font-mono">Drive API</span>
-                </div>
-                <div className="text-[11px] text-gray-400 mt-0.5">
-                  Buat folder otomatis di Google Drive dan simpan slide
-                </div>
-              </div>
-            </button>
 
             {/* Open Full E-Book Studio Tab */}
             {onSwitchToEbook && (

@@ -22,6 +22,7 @@ import {
 import { IngestedMaterial, IngestionSourceType, ApiKeyConfig, EbookData, Slide, DesignVariantId } from '../types';
 import { VariantSelectorModal } from './VariantSelectorModal';
 import { DESIGN_VARIANTS } from '../data/designVariants';
+import { generateCarouselAI, generateEbookAI } from '../services/aiClient';
 
 interface MaterialIngestionModalProps {
   isOpen: boolean;
@@ -93,6 +94,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
         }),
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Layanan transkrip server tidak merespons JSON. Anda dapat menyalin transkrip langsung ke tab "Tulis / Paste Naskah".');
+      }
+
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || 'Gagal mengambil transkrip YouTube.');
@@ -132,6 +138,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: webUrl.trim() }),
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Layanan pembaca web server tidak aktif. Silakan salin isi artikel langsung ke tab "Tulis / Paste Naskah".');
+      }
 
       const data = await res.json();
       if (!res.ok) {
@@ -176,6 +187,11 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
               }),
             });
 
+            const contentType = res.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+              throw new Error('Layanan pembaca PDF server tidak aktif. Silakan salin teks PDF ke tab "Tulis / Paste Naskah".');
+            }
+
             const data = await res.json();
             if (!res.ok) {
               throw new Error(data.error || 'Gagal membaca file PDF.');
@@ -192,40 +208,34 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
               dateAdded: new Date().toLocaleTimeString(),
             });
             setIsIngesting(false);
-          } catch (err: any) {
-            setIngestError(err.message || 'Gagal mengekstrak PDF.');
+          } catch (pErr: any) {
+            setIngestError(pErr.message || 'Gagal membaca file PDF.');
             setIsIngesting(false);
           }
         };
         reader.readAsDataURL(file);
-      } else {
-        // Plain text, Markdown, etc.
-        const text = await file.text();
+        return;
+      }
+
+      // Plain text, markdown, docx txt fallback
+      const reader = new FileReader();
+      reader.onload = () => {
+        const textContent = reader.result as string;
         setIngestedData({
           id: `mat-${Date.now()}`,
-          sourceType: 'text',
-          title: file.name,
+          sourceType: 'document',
+          title: file.name.replace(/\.[^/.]+$/, ''),
           fileName: file.name,
-          rawText: text,
-          wordCount: text.split(/\s+/).length,
+          rawText: textContent,
+          wordCount: textContent.split(/\s+/).length,
           dateAdded: new Date().toLocaleTimeString(),
         });
         setIsIngesting(false);
-      }
+      };
+      reader.readAsText(file);
     } catch (err: any) {
-      setIngestError(err.message || 'Gagal memproses dokumen.');
+      setIngestError(err.message || 'Gagal mengunggah file.');
       setIsIngesting(false);
-    }
-  };
-
-  const handlePasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        setCustomText((prev) => (prev ? prev + '\n\n' + text : text));
-      }
-    } catch {
-      alert('Tidak dapat membaca clipboard secara otomatis. Silakan gunakan Ctrl+V atau Command+V untuk menempel teks.');
     }
   };
 
@@ -247,12 +257,33 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
       wordCount: words,
       dateAdded: new Date().toLocaleTimeString(),
     });
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setCustomText((prev) => (prev ? prev + '\n\n' + text : text));
+      }
+    } catch {
+      alert('Tidak dapat membaca clipboard secara otomatis. Silakan gunakan Ctrl+V atau Command+V untuk menempel teks.');
+    }
+  };
+
+  // Clear ingested state
+  const handleClear = () => {
+    setIngestedData(null);
+    setYoutubeUrl('');
+    setWebUrl('');
+    setSelectedFile(null);
+    setCustomText('');
+    setCustomTopic('');
     setIngestError(null);
   };
 
   // Execute AI E-Book Generation from Ingested Material
   const handleGenerateEbook = async () => {
-    if (!ingestedData && !customTopic.trim()) {
+    if (!ingestedData && !customTopic.trim() && !customText.trim()) {
       setIngestError('Silakan masukkan materi atau topik terlebih dahulu.');
       return;
     }
@@ -262,33 +293,25 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setIngestError(null);
 
     try {
-      const topicTitle = ingestedData?.title || customTopic || 'Panduan Komprehensif';
+      const topicTitle = ingestedData?.title || customTopic || customText.slice(0, 60) || 'Panduan Komprehensif';
       const sourceText = ingestedData?.rawText || customText || '';
 
-      const res = await fetch('/api/generate-ebook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: topicTitle,
-          sourceText,
-          sourceType: ingestedData?.sourceType || 'notes',
-          sourceTitle: ingestedData?.title,
-          authorName: authorName || 'Creator Pro',
-          moduleCount,
-          language,
-          provider: apiKeyConfig?.provider || 'gemini',
-          apiKey: apiKeyConfig?.apiKey,
-          model: apiKeyConfig?.model,
-          baseUrl: apiKeyConfig?.baseUrl,
-        }),
+      const result = await generateEbookAI({
+        topic: topicTitle,
+        sourceText,
+        sourceType: ingestedData?.sourceType || 'notes',
+        sourceTitle: ingestedData?.title,
+        authorName: authorName || 'Arijal Meutuwah',
+        moduleCount,
+        language,
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.ebook) {
-        throw new Error(data.error || 'Gagal membuat E-Book dari AI.');
+      if (!result.ebook) {
+        throw new Error(result.error || 'Gagal membuat E-Book dari AI.');
       }
 
-      onEbookGenerated({ ...data.ebook, variantId: selectedVariantId });
+      onEbookGenerated({ ...result.ebook, variantId: selectedVariantId });
       onClose();
     } catch (err: any) {
       setIngestError(err.message || 'Terjadi kesalahan saat menyusun E-Book.');
@@ -300,7 +323,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
 
   // Execute AI Carousel Generation from Ingested Material
   const handleGenerateCarousel = async () => {
-    if (!ingestedData && !customTopic.trim()) {
+    if (!ingestedData && !customTopic.trim() && !customText.trim()) {
       setIngestError('Silakan masukkan materi atau topik terlebih dahulu.');
       return;
     }
@@ -310,31 +333,23 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setIngestError(null);
 
     try {
-      const topicTitle = ingestedData?.title || customTopic || 'High Impact Guide';
+      const topicTitle = ingestedData?.title || customTopic || customText.slice(0, 60) || 'High Impact Guide';
       const sourceText = ingestedData?.rawText || customText || '';
 
-      const res = await fetch('/api/generate-carousel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: topicTitle,
-          sourceMaterial: sourceText,
-          slideCount,
-          language,
-          authorName: authorName || '@creator',
-          provider: apiKeyConfig?.provider || 'gemini',
-          apiKey: apiKeyConfig?.apiKey,
-          model: apiKeyConfig?.model,
-          baseUrl: apiKeyConfig?.baseUrl,
-        }),
+      const result = await generateCarouselAI({
+        topic: topicTitle,
+        sourceMaterial: sourceText,
+        slideCount,
+        language,
+        authorName: authorName || '@abangjal',
+        apiKeyConfig,
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.slides) {
-        throw new Error(data.error || 'Gagal menghasilkan slide carousel.');
+      if (!result.slides || result.slides.length === 0) {
+        throw new Error(result.error || 'Gagal menghasilkan slide carousel.');
       }
 
-      onCarouselGenerated(data.slides, topicTitle);
+      onCarouselGenerated(result.slides, topicTitle);
       onClose();
     } catch (err: any) {
       setIngestError(err.message || 'Terjadi kesalahan saat meringkas menjadi carousel.');
