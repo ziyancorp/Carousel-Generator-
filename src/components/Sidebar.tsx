@@ -302,8 +302,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <User className="w-3.5 h-3.5 text-blue-400" />
               Branding Kreator (Footer Slide)
             </label>
-            <span className="text-[9px] font-mono text-emerald-400 flex items-center gap-0.5 bg-emerald-950/30 border border-emerald-500/20 px-1.5 py-0.5 rounded">
-              <ShieldCheck className="w-3 h-3" /> Permanen
+            <span className="text-[9px] font-mono text-emerald-400 flex items-center gap-0.5 bg-emerald-950/30 border border-emerald-500/20 px-1.5 py-0.5 rounded" title="Tersimpan di perangkat ini, dapat Anda ganti kapan saja">
+              <ShieldCheck className="w-3 h-3" /> Tersimpan (Bisa Diedit)
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
