@@ -558,6 +558,8 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
 
           <button
             type="button"
+            id="close-ingest-modal-header-btn"
+            aria-label="Close modal"
             onClick={onClose}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition"
           >
