@@ -1290,7 +1290,7 @@ app.post("/api/distill-ebook-to-carousel", async (req, res) => {
       tone = "santai, padat dan bernilai tinggi",
       language = "Indonesian",
       authorName = "@creator",
-      provider = "gemini",
+      provider = "xkiro",
       apiKey,
       model,
       baseUrl
@@ -1381,7 +1381,7 @@ app.post("/api/structure-content", async (req, res) => {
       tone = "santai dan engaging",
       language = "Indonesian",
       authorName = "@creator",
-      provider = "gemini",
+      provider = "xkiro",
       apiKey,
       model,
       baseUrl
@@ -1407,7 +1407,7 @@ Restructure into ${count} slides now.`;
         systemPrompt,
         userPrompt
       });
-      const parsed = JSON.parse(raw);
+      const parsed = sanitizeAndParseJSON(raw);
       const formatted = (parsed.slides || []).map((s, idx) => ({
         id: `slide-struct-${Date.now()}-${idx}`,
         slide_number: idx + 1,
