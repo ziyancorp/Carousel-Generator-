@@ -22,7 +22,13 @@ import { ExportModal } from './components/ExportModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { EbookReaderView } from './components/EbookReaderView';
 import { MaterialIngestionModal } from './components/MaterialIngestionModal';
-import { generateCarouselAI, structureContentAI } from './services/aiClient';
+import {
+  generateCarouselAI,
+  structureContentAI,
+  DEFAULT_XKIRO_KEY,
+  DEFAULT_XKIRO_MODEL,
+  DEFAULT_XKIRO_BASE_URL,
+} from './services/aiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveAppTab>('carousel');
@@ -54,11 +60,12 @@ export default function App() {
   // E-Book State (Dynamic AI Initializer without hardcoded mock files)
   const [currentEbook, setCurrentEbook] = useState<EbookData>(() => createInitialEmptyEbook('Arijal Meutuwah'));
 
-  // Multi-Provider API Key Config
+  // Multi-Provider API Key Config (Default to verified active xKiro DeepSeek)
   const [apiKeyConfig, setApiKeyConfig] = useState<ApiKeyConfig>({
-    provider: 'gemini',
-    apiKey: '',
-    model: 'gemini-2.5-flash',
+    provider: 'xkiro',
+    apiKey: DEFAULT_XKIRO_KEY,
+    model: DEFAULT_XKIRO_MODEL,
+    baseUrl: DEFAULT_XKIRO_BASE_URL,
   });
 
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
@@ -100,12 +107,27 @@ export default function App() {
       const savedModel = localStorage.getItem('carouselx_ai_model');
       const savedBaseUrl = localStorage.getItem('carouselx_ai_base_url');
 
-      if (savedApiKey || savedProvider) {
+      if (savedApiKey && savedApiKey.trim().length > 5) {
         setApiKeyConfig({
-          provider: savedProvider || 'gemini',
-          apiKey: savedApiKey || '',
-          model: savedModel || (savedProvider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'gemini-2.5-flash'),
+          provider: savedProvider || 'xkiro',
+          apiKey: savedApiKey,
+          model: savedModel || (savedProvider === 'anthropic' ? 'claude-3-5-haiku-latest' : 'deepseek/deepseek-chat-v3.1'),
           baseUrl: savedBaseUrl || undefined,
+        });
+      } else if (savedProvider && savedProvider !== 'gemini' && savedProvider !== 'xkiro') {
+        setApiKeyConfig({
+          provider: savedProvider,
+          apiKey: savedApiKey || '',
+          model: savedModel || undefined,
+          baseUrl: savedBaseUrl || undefined,
+        });
+      } else {
+        // Active out-of-the-box verified free xKiro DeepSeek
+        setApiKeyConfig({
+          provider: 'xkiro',
+          apiKey: DEFAULT_XKIRO_KEY,
+          model: DEFAULT_XKIRO_MODEL,
+          baseUrl: DEFAULT_XKIRO_BASE_URL,
         });
       }
     } catch (e) {

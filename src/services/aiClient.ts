@@ -22,7 +22,7 @@ export function sanitizeAndParseJSON(rawStr: string): any {
   }
 }
 
-export const DEFAULT_XKIRO_KEY = 'sk-xt-8fd3f1a5a7eb83a731221b06da8d3fe796031252d6a50f55bd8432b610c1448b';
+export const DEFAULT_XKIRO_KEY = 'sk-xt-8fd3f1a5a22446db94e0b6d0b7573f35e32d90ca6287f5ab';
 export const DEFAULT_XKIRO_MODEL = 'deepseek/deepseek-chat-v3.1';
 export const DEFAULT_XKIRO_BASE_URL = 'https://api.xkiro.com/v1';
 
@@ -32,170 +32,247 @@ export function getFallbackCarousel(topic: string, slideCount: number = 5, langu
   const count = Math.min(Math.max(slideCount || 5, 3), 10);
   const fallbackSlides: Slide[] = [];
 
-  // Parse real material items if provided
-  let chunks: string[] = [];
+  // Parse and clean real material sentences if provided
+  let cleanSentences: string[] = [];
   if (sourceMaterial && sourceMaterial.trim().length > 15) {
-    chunks = sourceMaterial
-      .split(/\n+/)
-      .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
-      .filter((l) => l.length > 10);
+    cleanSentences = sourceMaterial
+      .replace(/\r\n/g, '\n')
+      .split(/(?<=[.!?\n])\s+/)
+      .map((s) => s.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter((s) => s.length >= 15 && !s.startsWith('http'));
   }
 
-  const effectiveTitle = topic || (chunks[0] ? chunks[0].slice(0, 60) : 'Panduan Ringkas Praktis');
+  const effectiveTitle = topic || (cleanSentences[0] ? cleanSentences[0].slice(0, 55) : 'Panduan Ringkas Praktis');
 
-  if (isId) {
-    fallbackSlides.push({
-      id: `slide-fb-1`,
-      slide_number: 1,
-      type: 'hook',
-      badge: '🔥 Materi Utama',
-      stepBadge: 'OVERVIEW · 01',
-      title: effectiveTitle,
-      highlightWord: effectiveTitle.split(' ')[0] || 'Panduan',
-      body: chunks[1] || 'Berikut adalah rangkuman poin inti dan pembelajaran penting yang disarikan langsung dari materi sumber.',
-      footer_hint: 'Geser ke kanan 👉',
-      points: [
-        chunks[2] ? chunks[2].slice(0, 60) : 'Poin penting disarikan dari naskah',
-        chunks[3] ? chunks[3].slice(0, 60) : 'Langkah praktis siap terapkan',
-      ],
-      ctaButtonText: 'Baca Selengkapnya →',
-    });
+  // Pedagogical stage definitions to ensure 100% unique slide themes if material sentences are sparse
+  const stagesId = [
+    { badge: 'Tahap 01 · Fondasi', step: 'STEP 01 · FONDASI UTAMA', title: 'Fondasi Utama & Mindset Eksekusi', highlight: 'Fondasi Utama', defaultBody: 'Pahami akar masalah sebelum melangkah ke solusi teknis. Hilangkan hambatan awal terbesar agar progress berjalan konsisten.', p1: 'Audit titik friksi terbesar dalam alur kerja', p2: 'Prioritaskan 20% tindakan penentu 80% dampak hasil' },
+    { badge: 'Tahap 02 · Alur Kerja', step: 'STEP 02 · ALUR SISTEM', title: 'Alur Eksekusi Taktis & Penerapan', highlight: 'Eksekusi Taktis', defaultBody: 'Terapkan metode teruji langkah demi langkah. Hindari multitasking berlebihan dan fokus pada satu hasil berkualitas.', p1: 'Bangun checklist operasional terstandarisasi', p2: 'Validasi setiap hasil dengan kriteria yang jelas' },
+    { badge: 'Tahap 03 · Optimasi', step: 'STEP 03 · OPTIMASI PROSES', title: 'Optimasi & Pengurangan Bottleneck', highlight: 'Optimasi Proses', defaultBody: 'Identifikasi proses lambat dan sederhanakan alurnya. Manfaatkan automasi agar waktu berharga Anda tidak terbuang sia-sia.', p1: 'Otomasi tugas repetitif bernilai rendah', p2: 'Evaluasi metrik efisiensi secara berkala' },
+    { badge: 'Tahap 04 · Scale Up', step: 'STEP 04 · SKALA BESAR', title: 'Kunci Skalabilitas & Konsistensi', highlight: 'Skalabilitas', defaultBody: 'Setelah sistem berjalan stabil, tingkatkan skala secara terkontrol tanpa mengorbankan kualitas dan akurasi.', p1: 'Dokumentasikan pola keberhasilan yang terbukti', p2: 'Duplikasi sistem untuk menangani beban lebih besar' },
+    { badge: 'Tahap 05 · Evaluasi', step: 'STEP 05 · EVALUASI AKHIR', title: 'Evaluasi Kinerja & Peningkatan Mutu', highlight: 'Peningkatan Mutu', defaultBody: 'Pantau metrik keberhasilan secara obyektif dan lakukan penyesuaian cepat terhadap bagian yang belum optimal.', p1: 'Bandingkan hasil nyata dengan target awal', p2: 'Perbaiki celah kecil sebelum menjadi masalah besar' },
+  ];
 
-    for (let i = 2; i < count; i++) {
-      const step = i - 1;
-      const chunkText = chunks[i] || `Poin ${step} dari materi: Pelajari implementasi langkah demi langkah.`;
-      fallbackSlides.push({
-        id: `slide-fb-${i}`,
-        slide_number: i,
-        type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Poin 0${step}`,
-        stepBadge: `STEP 0${step} · INTI MATERI`,
-        title: chunkText.length > 50 ? chunkText.slice(0, 48) + '...' : chunkText,
-        highlightWord: 'Inti Materi',
-        body: chunks[i + count] || chunkText,
-        points: [
-          chunks[i + 1] ? chunks[i + 1].slice(0, 70) : 'Terapkan konsep ini ke alur kerja harian',
-          chunks[i + 2] ? chunks[i + 2].slice(0, 70) : 'Fokus pada hasil konsisten dan terukur',
-        ],
-        tip: `💡 Terapkan poin ${step} ini untuk hasil maksimal.`,
-        footer_hint: 'Lanjut ke poin berikutnya 🚀',
-      });
-    }
+  const stagesEn = [
+    { badge: 'Phase 01 · Foundation', step: 'STEP 01 · CORE PRINCIPLE', title: 'Core Foundations & Mindset Shift', highlight: 'Core Foundation', defaultBody: 'Understand the root friction points before jumping into execution. Remove the biggest blocker to maintain momentum.', p1: 'Audit high-friction areas in current workflows', p2: 'Focus on high-leverage 80/20 execution points' },
+    { badge: 'Phase 02 · Execution', step: 'STEP 02 · TACTICAL ACTION', title: 'Tactical Execution & Workflow', highlight: 'Tactical Action', defaultBody: 'Apply proven step-by-step methodologies without distraction. Prioritize high-quality single-task progress.', p1: 'Establish clear operational checklists', p2: 'Validate each milestone with concrete criteria' },
+    { badge: 'Phase 03 · Optimization', step: 'STEP 03 · SYSTEM OPTIMIZATION', title: 'Process Optimization & Flow', highlight: 'System Optimization', defaultBody: 'Eliminate repetitive bottlenecks and automate low-value chores to safeguard your creative energy.', p1: 'Automate repetitive and tedious tasks', p2: 'Track efficiency metrics regularly' },
+    { badge: 'Phase 04 · Scale Up', step: 'STEP 04 · SCALABILITY', title: 'Scaling Impact & Consistency', highlight: 'Scalability', defaultBody: 'Once the base system runs smoothly, scale capacity predictably without sacrificing standard quality.', p1: 'Document proven repeatable playbooks', p2: 'Expand output capacity systematically' },
+  ];
 
-    fallbackSlides.push({
-      id: `slide-fb-${count}`,
-      slide_number: count,
-      type: 'cta',
-      badge: '⚡ Kesimpulan & Aksi',
-      stepBadge: 'YOU ARE ALL SET',
-      title: 'Mulai Terapkan Sekarang Juga!',
-      highlightWord: 'Terapkan Sekarang',
-      body: 'Simpan postingan ini agar tidak lupa, dan bagikan ke teman kamu yang butuh insight ini.',
-      footer_hint: 'Save & Share 📌',
-      points: ['📌 Simpan untuk referensi nanti', '💬 Tulis pendapatmu di kolom komentar'],
-      ctaButtonText: 'Simpan Panduan Ini 🔖',
-    });
-  } else {
-    fallbackSlides.push({
-      id: `slide-fb-1`,
-      slide_number: 1,
-      type: 'hook',
-      badge: '🔥 Essential Blueprint',
-      stepBadge: 'OVERVIEW · 01',
-      title: `${topic}: The High-Impact Guide You Need`,
-      highlightWord: 'High-Impact',
-      body: 'Stop wasting hours doing things the hard way. Here is the exact framework to get 10x results effortlessly.',
-      footer_hint: 'Swipe to learn 👉',
-      points: ['Saves 15+ hours weekly', 'Actionable step-by-step framework'],
-      ctaButtonText: 'Read Full Guide →',
-    });
+  const stages = isId ? stagesId : stagesEn;
 
-    for (let i = 2; i < count; i++) {
-      const step = i - 1;
-      fallbackSlides.push({
-        id: `slide-fb-${i}`,
-        slide_number: i,
-        type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Step 0${step}`,
-        stepBadge: `STEP 0${step} · WORKFLOW`,
-        title: `Core Step ${step}: Streamline & Accelerate`,
-        highlightWord: 'Accelerate',
-        body: `Mastering ${topic} requires eliminating repetitive bottlenecks and setting up automated workflows.`,
-        points: [
-          'Audit your current friction points',
-          'Implement the 80/20 rule to high-leverage tasks',
-          'Track weekly milestones systematically',
-        ],
-        footer_hint: 'Next step ahead 🚀',
-      });
-    }
+  // Slide 1: Hook
+  fallbackSlides.push({
+    id: `slide-fb-1`,
+    slide_number: 1,
+    type: 'hook',
+    badge: isId ? '🔥 Materi Pilihan' : '🔥 Essential Guide',
+    stepBadge: 'OVERVIEW · 01',
+    title: effectiveTitle,
+    highlightWord: effectiveTitle.split(' ')[0] || (isId ? 'Panduan' : 'Mastery'),
+    body: cleanSentences[0] || (isId
+      ? 'Berikut adalah rangkuman esensial dan poin-poin pembelajaran kunci yang disarikan langsung dari materi sumber.'
+      : 'Here is the high-value synthesis and core actionable takeaways extracted directly from your source material.'),
+    footer_hint: isId ? 'Geser ke kanan 👉' : 'Swipe to learn 👉',
+    points: [
+      cleanSentences[1] ? cleanSentences[1].slice(0, 65) : (isId ? 'Poin inti disarikan dari naskah' : 'Key insight distilled from source'),
+      cleanSentences[2] ? cleanSentences[2].slice(0, 65) : (isId ? 'Langkah praktis siap terapkan' : 'Actionable execution blueprint'),
+    ],
+    ctaButtonText: isId ? 'Pelajari Selengkapnya →' : 'Read Full Guide →',
+  });
+
+  // Middle Slides: 2 to count - 1
+  for (let i = 2; i < count; i++) {
+    const stepIdx = i - 2;
+    const stage = stages[stepIdx % stages.length];
+    const sentenceA = cleanSentences[i] || stage.defaultBody;
+    const sentenceB = cleanSentences[i + count] || stage.p1;
+    const sentenceC = cleanSentences[i + count * 2] || stage.p2;
+
+    const slideTitle = cleanSentences[i] && cleanSentences[i].length < 45
+      ? cleanSentences[i]
+      : `${stage.title}`;
 
     fallbackSlides.push({
-      id: `slide-fb-${count}`,
-      slide_number: count,
-      type: 'cta',
-      badge: '⚡ Take Action',
-      stepBadge: 'YOU ARE ALL SET',
-      title: 'Ready To Level Up Your Game?',
-      highlightWord: 'Level Up',
-      body: 'Bookmark this carousel for quick reference and share your key takeaway in the comments.',
-      footer_hint: 'Save & Bookmark 📌',
-      points: ['📌 Save this for later', '💬 Drop your thoughts below'],
-      ctaButtonText: 'Save this guide 🔖',
+      id: `slide-fb-${i}`,
+      slide_number: i,
+      type: i % 2 === 0 ? 'bullet' : 'content',
+      badge: stage.badge,
+      stepBadge: stage.step,
+      title: slideTitle,
+      highlightWord: stage.highlight,
+      body: sentenceA,
+      points: [sentenceB.slice(0, 75), sentenceC.slice(0, 75)],
+      tip: isId ? `💡 Tip: Terapkan prinsip ${stage.highlight.toLowerCase()} ini secara konsisten.` : `💡 Pro Tip: Apply this ${stage.highlight.toLowerCase()} consistently.`,
+      footer_hint: isId ? 'Lanjut ke langkah berikutnya 🚀' : 'Next step ahead 🚀',
     });
   }
+
+  // Final Slide: CTA & Conclusion
+  fallbackSlides.push({
+    id: `slide-fb-${count}`,
+    slide_number: count,
+    type: 'cta',
+    badge: isId ? '⚡ Kesimpulan & Aksi' : '⚡ Summary & Action',
+    stepBadge: 'YOU ARE ALL SET',
+    title: isId ? 'Mulai Terapkan Sekarang Juga!' : 'Ready to Take Action?',
+    highlightWord: isId ? 'Terapkan Sekarang' : 'Take Action',
+    body: isId
+      ? 'Kunci keberhasilan bukan hanya pada membaca materi, melainkan konsistensi eksekusi di lapangan. Simpan panduan ini untuk referensi berkala.'
+      : 'Success comes from disciplined implementation, not just passive reading. Bookmark this guide to review whenever you execute.',
+    footer_hint: isId ? 'Save & Share 📌' : 'Save & Share 📌',
+    points: [
+      isId ? '📌 Simpan postingan ini untuk contekan kerja' : '📌 Bookmark this guide for quick reference',
+      isId ? '💬 Tulis takeaway terbesarmu di kolom komentar' : '💬 Share your main takeaway in the comments',
+    ],
+    ctaButtonText: isId ? 'Simpan Panduan Ini 🔖' : 'Save This Guide 🔖',
+  });
 
   return fallbackSlides;
 }
 
-// Fallback E-Book Generator
-export function getFallbackEbook(topic: string, moduleCount: number = 4, language: string = 'Indonesian', authorName: string = 'Arijal Meutuwah'): EbookData {
-  const count = Math.min(Math.max(moduleCount || 4, 3), 8);
+// Fallback E-Book Generator with distinct, high-value modules
+export function getFallbackEbook(topic: string, moduleCount: number = 5, language: string = 'Indonesian', authorName: string = 'Arijal Meutuwah'): EbookData {
+  const count = Math.min(Math.max(moduleCount || 5, 3), 8);
   const modules: EbookModule[] = [];
 
+  const moduleBlueprints = [
+    {
+      badge: 'Modul 01',
+      title: `Mindset & Fondasi Kunci: ${topic}`,
+      desc: `Pahami prinsip fundamental dan hilangkan kesalahan paling umum sebelum memulai.`,
+      icon: '🎯',
+      cardTitle: 'Prinsip Dasar & Pola Pikir',
+      cardSub: 'Membangun Fondasi yang Tak Tergoyahkan',
+      body: `Banyak pemula gagal karena terburu-buru eksekusi tanpa strategi jelas. Modul ini membimbing Anda memetakan prioritas utama.`,
+      checklist: [
+        'Audit 3 hambatan terbesar yang memperlambat progress',
+        'Fokus pada 20% upaya kunci penentu 80% hasil nyata',
+        'Menyiapkan standar kualitas kerja yang konsisten',
+      ],
+      steps: [
+        { number: 1, title: 'Pemetaan Tujuan & Parameter Keberhasilan', text: 'Tentukan indikator kunci kinerja (KPI) agar hasil akhir dapat diukur dengan jelas dan obyektif.' },
+        { number: 2, title: 'Eliminasi Friksi Awal', text: 'Singkirkan distraksi dan siapkan instrumen kerja yang siap pakai tanpa kerumitan teknis.' },
+        { number: 3, title: 'Penyusunan Rencana Aksi Harian', text: 'Bagi target besar menjadi tindakan terukur yang bisa diselesaikan dalam 30 menit setiap hari.' },
+      ],
+      prompts: [
+        { tag: 'Master Prompt: Audit Fondasi', content: `Bertindaklah sebagai konsultan strategis. Analisis topik "${topic}" dan berikan 3 risiko terbesar yang wajib dihindari serta solusi praktisnya.` },
+      ],
+      callout: { type: 'tip' as const, icon: '💡', title: 'Prinsip Emas', body: 'Fondasi yang matang memangkas 70% waktu revisi dan kegagalan di masa mendatang.' },
+    },
+    {
+      badge: 'Modul 02',
+      title: `Alur Riset Taktis & Validasi Data`,
+      desc: `Metode menyaring materi berbobot dan mengonversinya menjadi wawasan bernilai tinggi.`,
+      icon: '🔍',
+      cardTitle: 'Sistem Riset Terarah',
+      cardSub: 'Mengumpulkan Data & Bukti Nyata',
+      body: `Konten dan produk berkualitas lahir dari riset yang mendalam. Pelajari cara menggali insight autentik yang dibutuhkan target audiens.`,
+      checklist: [
+        'Teknik menggali pain point dan kebutuhan mendesak pasar',
+        'Menyusun kerangka materi terstruktur tanpa informasi sampah',
+        'Memvalidasi akurasi setiap referensi sebelum dipublikasikan',
+      ],
+      steps: [
+        { number: 1, title: 'Identifikasi Kebutuhan Nyata Audiens', text: 'Kumpulkan pertanyaan paling sering diajukan dan keluhan yang belum terselesaikan.' },
+        { number: 2, title: 'Kurasi Referensi & Bukti Kasus', text: 'Kumpulkan studi kasus nyata dan data empiris untuk memperkuat kredibilitas.' },
+        { number: 3, title: 'Sintesis Menjadi Formula Praktis', text: 'Ubah teori yang rumit menjadi langkah-langkah sederhana yang mudah diikuti siapa saja.' },
+      ],
+      prompts: [
+        { tag: 'Master Prompt: Riset Masalah', content: `Ekstrak 5 pertanyaan mendasar dan 5 ketakutan terbesar yang sering dihadapi seseorang terkait "${topic}".` },
+      ],
+      callout: { type: 'info' as const, icon: '📌', title: 'Catatan Riset', body: 'Kredibilitas adalah mata uang utama. Gunakan data konkret untuk mendukung setiap klaim.' },
+    },
+    {
+      badge: 'Modul 03',
+      title: `Metodologi Eksekusi & Penerapan Lapangan`,
+      desc: `Langkah demi langkah menerapkan konsep menjadi hasil konkret yang dapat dibuktikan.`,
+      icon: '⚡',
+      cardTitle: 'Eksekusi Bertahap Tanpa Henti',
+      cardSub: 'Mengubah Rencana Menjadi Hasil Nyata',
+      body: `Kekuatan utama sebuah panduan ada pada kemampuannya membimbing eksekusi langkah demi langkah dengan jelas.`,
+      checklist: [
+        'Prosedur operasional standar (SOP) yang siap dijalankan',
+        'Pengendalian kualitas pada setiap tahapan kerja',
+        'Mengatasi kebuntuan teknis dengan solusi teruji',
+      ],
+      steps: [
+        { number: 1, title: 'Setup Lingkungan & Bahan Baku', text: 'Pastikan seluruh aset, template, dan materi pendukung telah tertata rapi di satu tempat.' },
+        { number: 2, title: 'Eksekusi Modul Percontohan (MVP)', text: 'Kerjakan versi pertama dengan fokus pada fungsi inti sebelum menyempurnakan detail.' },
+        { number: 3, title: 'Uji Coba & Koreksi Langsung', text: 'Lakukan peninjauan hasil kerja dan perbaiki kesalahan kecil sesegera mungkin.' },
+      ],
+      prompts: [
+        { tag: 'Master Prompt: Checklist Eksekusi', content: `Buatkan checklist langkah taktis harian untuk mengimplementasikan "${topic}" secara bertahap selama 7 hari.` },
+      ],
+      callout: { type: 'tip' as const, icon: '🚀', title: 'Trik Produktivitas', body: 'Selesaikan satu tugas penting sebelum berpindah ke tugas berikutnya untuk menjaga momentum.' },
+    },
+    {
+      badge: 'Modul 04',
+      title: `Optimasi Alur Kerja & Otomasi Sistem`,
+      desc: `Meningkatkan efisiensi kerja hingga 3x lipat dengan bantuan sistem dan automasi cerdas.`,
+      icon: '⚙️',
+      cardTitle: 'Efisiensi Tanpa Hambatan',
+      cardSub: 'Bekerja Lebih Cerdas, Bukan Lebih Keras',
+      body: `Pelajari cara mengotomatiskan tugas-tugas repetitif agar fokus Anda tetap pada aspek bernilai tinggi.`,
+      checklist: [
+        'Memetakan proses yang memakan waktu paling banyak',
+        'Menerapkan automasi dan template untuk tugas berulang',
+        'Mengurangi kesalahan manusia dengan sistem pengawasan',
+      ],
+      steps: [
+        { number: 1, title: 'Pemisahan Tugas Kreatif vs Repetitif', text: 'Identifikasi pekerjaan mekanis yang bisa didelegasikan atau diotomasi sepenuhnya.' },
+        { number: 2, title: 'Implementasi Template Standar', text: 'Buat template dokumen dan workflow yang dapat digunakan kembali kapan saja.' },
+        { number: 3, title: 'Pemantauan Waktu & Output', text: 'Ukur penghematan waktu yang diperoleh dan alokasikan untuk pengembangan strategis.' },
+      ],
+      prompts: [
+        { tag: 'Master Prompt: Automasi Kerja', content: `Identifikasi 3 area paling memakan waktu dalam "${topic}" dan berikan cara mengotomasikannya dengan bantuan AI.` },
+      ],
+      callout: { type: 'tip' as const, icon: '💡', title: 'Kunci Efisiensi', body: 'Sistem yang baik bekerja untuk Anda, membebaskan waktu untuk inovasi yang lebih besar.' },
+    },
+    {
+      badge: 'Modul 05',
+      title: `Monetisasi, Distribusi & Skalabilitas`,
+      desc: `Strategi mengubah penguasaan materi menjadi aset digital bernilai komersial tinggi.`,
+      icon: '💎',
+      cardTitle: 'Pengemasan & Komersialisasi',
+      cardSub: 'Menghasilkan Nilai Nyata dari Keterampilan Anda',
+      body: `Buku panduan ini dirancang untuk siap monetisasi di platform seperti Lynk.id, Shopee, Gumroad, atau media sosial Anda.`,
+      checklist: [
+        'Strategi penetapan harga berbasis nilai (Value-Based Pricing)',
+        'Saluran distribusi digital terpopuler dengan konversi tinggi',
+        'Membangun basis audiens yang loyal dan siap membeli',
+      ],
+      steps: [
+        { number: 1, title: 'Pengemasan Penawaran yang Menggiurkan', text: 'Kemas materi Anda menjadi produk digital premium dengan bonus dan garansi nilai.' },
+        { number: 2, title: 'Distribusi Melalui Kanal Tepat Sasaran', text: 'Gunakan etalase digital seperti Lynk.id atau Shopee untuk memudahkan transaksi pembeli.' },
+        { number: 3, title: 'Skalabilitas & Peluncuran Berulang', text: 'Bangun corong pemasaran (funnel) sederhana yang mengalirkan pembeli secara berkelanjutan.' },
+      ],
+      prompts: [
+        { tag: 'Master Prompt: Formula Penawaran', content: `Buatkan naskah penawaran persuasif (sales copy) untuk menjual produk digital bertema "${topic}" di Lynk.id.` },
+      ],
+      callout: { type: 'tip' as const, icon: '💰', title: 'Mindset Monetisasi', body: 'Audiens tidak membeli sekadar informasi, mereka membeli kemudahan, kecepatan, dan kepastian hasil.' },
+    },
+  ];
+
   for (let i = 1; i <= count; i++) {
+    const bp = moduleBlueprints[(i - 1) % moduleBlueprints.length];
     modules.push({
       id: `modul-fb-${i}`,
       moduleNumber: i,
-      badge: `Modul ${i}`,
-      title: i === 1 ? `Fondasi & Strategi: ${topic}` : i === count ? `Monetisasi & Eksekusi Skala Besar` : `Pilar ${i}: Implementasi & Optimasi Alur Kerja`,
-      description: `Panduan taktis modul ${i} untuk menguasai ${topic} dengan hasil terukur.`,
+      badge: `Modul 0${i}`,
+      title: i === 1 ? bp.title : i === count ? `Monetisasi & Eksekusi Skala Besar` : bp.title,
+      description: bp.desc,
       introCard: {
-        icon: i === 1 ? '🎯' : i === count ? '🚀' : '⚡',
-        title: `Fokus Modul ${i}`,
-        subtitle: `Prinsip Utama & Eksekusi Lapangan`,
-        body: `Pelajari aspek kunci dalam ${topic} dan bagaimana mengeliminasi kesalahan umum para pemula.`,
-        checklist: [
-          `Menguasai alur kerja dasar secara mendalam`,
-          `Menerapkan teknik otomatisasi hemat waktu`,
-          `Membangun sistem yang konsisten dan berkelanjutan`,
-        ],
+        icon: bp.icon,
+        title: bp.cardTitle,
+        subtitle: bp.cardSub,
+        body: bp.body,
+        checklist: bp.checklist,
       },
-      steps: [
-        {
-          number: 1,
-          title: 'Pemetaan Awal & Persiapan Sistem',
-          text: 'Siapkan lingkungan kerja dan identifikasi parameter keberhasilan utama.',
-        },
-        {
-          number: 2,
-          title: 'Eksekusi Bertahap Tanpa Distraksi',
-          text: 'Fokus pada satu tugas bernilai tinggi dan gunakan formula yang telah teruji.',
-        },
-        {
-          number: 3,
-          title: 'Evaluasi & Peningkatan Mutu',
-          text: 'Ukur hasil setiap iterasi dan sempurnakan setiap detail yang kurang optimal.',
-        },
-      ],
-      callouts: [
-        {
-          type: 'info',
-          icon: '💡',
-          title: 'Catatan Penting:',
-          body: 'Konsistensi eksekusi mengalahkan kecepatan tanpa arah. Gunakan modul ini sebagai acuan berkala.',
-        },
-      ],
+      steps: bp.steps,
+      prompts: bp.prompts,
+      callouts: [bp.callout],
     });
   }
 

@@ -16,7 +16,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-export const DEFAULT_XKIRO_KEY = 'sk-xt-8fd3f1a5a7eb83a731221b06da8d3fe796031252d6a50f55bd8432b610c1448b';
+export const DEFAULT_XKIRO_KEY = process.env.XKIRO_API_KEY || 'sk-xt-8fd3f1a5a22446db94e0b6d0b7573f35e32d90ca6287f5ab';
 export const DEFAULT_XKIRO_MODEL = 'deepseek/deepseek-chat-v3.1';
 export const DEFAULT_XKIRO_BASE_URL = 'https://api.xkiro.com/v1';
 
@@ -1123,7 +1123,7 @@ app.post('/api/validate-key', async (req, res) => {
       defaultTestModel = 'deepseek-chat';
     } else if (provider === 'xkiro') {
       targetUrl = targetUrl || 'https://api.xkiro.com/v1';
-      defaultTestModel = 'qwen/qwen3.8-max:free';
+      defaultTestModel = 'deepseek/deepseek-chat-v3.1';
     } else if (provider === 'groq') {
       targetUrl = targetUrl || 'https://api.groq.com/openai/v1';
       defaultTestModel = 'llama-3.1-8b-instant';
@@ -1138,12 +1138,16 @@ app.post('/api/validate-key', async (req, res) => {
       defaultTestModel = model || 'llama3';
     }
 
+    const effectiveTestKey = apiKey && apiKey.trim().length > 5
+      ? apiKey.trim()
+      : (provider === 'xkiro' ? (process.env.XKIRO_API_KEY || DEFAULT_XKIRO_KEY) : (apiKey || ''));
+
     const testEndpoint = targetUrl.replace(/\/+$/, '') + '/chat/completions';
     const testRes = await fetch(testEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey || ''}`,
+        Authorization: `Bearer ${effectiveTestKey}`,
       },
       body: JSON.stringify({
         model: model || defaultTestModel,
@@ -1163,125 +1167,106 @@ app.post('/api/validate-key', async (req, res) => {
   }
 });
 
-// Helper: Fallback Carousel Generator (Extracts from real material if provided)
+// Helper: Fallback Carousel Generator (Extracts from real material if provided with 100% unique slides)
 function getFallbackCarousel(topic: string, slideCount: number, language: string, sourceMaterial?: string) {
   const isId = language.toLowerCase().includes('id') || language.toLowerCase().includes('indo');
   const count = Math.min(Math.max(slideCount || 5, 3), 10);
-
-  // Parse real material chunks if provided
-  let chunks: string[] = [];
-  if (sourceMaterial && sourceMaterial.trim().length > 15) {
-    chunks = sourceMaterial
-      .split(/\n+/)
-      .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
-      .filter((l) => l.length > 10);
-  }
-
-  const effectiveTitle = topic || (chunks[0] ? chunks[0].slice(0, 60) : 'Panduan Ringkas Praktis');
   const fallbackSlides = [];
 
-  if (isId) {
-    fallbackSlides.push({
-      id: 'slide-1',
-      slide_number: 1,
-      type: 'hook',
-      badge: '🔥 Materi Utama',
-      stepBadge: 'OVERVIEW · 01',
-      title: effectiveTitle,
-      highlightWord: effectiveTitle.split(' ')[0] || 'Panduan',
-      body: chunks[1] || 'Berikut adalah rangkuman poin inti dan pembelajaran penting yang disarikan langsung dari materi sumber.',
-      footer_hint: 'Geser ke kanan 👉',
-      points: [
-        chunks[2] ? chunks[2].slice(0, 60) : 'Poin penting disarikan dari naskah',
-        chunks[3] ? chunks[3].slice(0, 60) : 'Langkah praktis siap terapkan',
-      ],
-      ctaButtonText: 'Baca Panduan Lengkap →',
-    });
+  // Parse real material sentences if provided
+  let cleanSentences: string[] = [];
+  if (sourceMaterial && sourceMaterial.trim().length > 15) {
+    cleanSentences = sourceMaterial
+      .replace(/\r\n/g, '\n')
+      .split(/(?<=[.!?\n])\s+/)
+      .map((s) => s.replace(/^[-*•\d.)\s]+/, '').trim())
+      .filter((s) => s.length >= 15 && !s.startsWith('http'));
+  }
 
-    for (let i = 2; i < count; i++) {
-      const step = i - 1;
-      const chunkIdx = 3 + (step - 1) * 2;
-      const pointA = chunks[chunkIdx] || `Langkah penting ke-${step} dari materi`;
-      const pointB = chunks[chunkIdx + 1] || 'Implementasi terarah dan terukur';
-      fallbackSlides.push({
-        id: `slide-${i}`,
-        slide_number: i,
-        type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Poin 0${step}`,
-        stepBadge: `STEP 0${step} · MATERI`,
-        title: chunks[chunkIdx] ? chunks[chunkIdx].slice(0, 45) : `Pembahasan Poin ${step}`,
-        highlightWord: `Poin ${step}`,
-        body: chunks[chunkIdx] || `Rincian konsep dan langkah pembahasan penting ke-${step} dari materi sumber.`,
-        points: [pointA.slice(0, 70), pointB.slice(0, 70)],
-        footer_hint: 'Lanjut ke poin berikutnya 🚀',
-      });
-    }
+  const effectiveTitle = topic || (cleanSentences[0] ? cleanSentences[0].slice(0, 55) : 'Panduan Ringkas Praktis');
 
-    fallbackSlides.push({
-      id: `slide-${count}`,
-      slide_number: count,
-      type: 'cta',
-      badge: '⚡ Kesimpulan & Aksi',
-      stepBadge: 'YOU ARE ALL SET',
-      title: 'Mulai Terapkan Insight Ini!',
-      highlightWord: 'Terapkan Insight',
-      body: 'Simpan ringkasan materi ini agar tidak hilang, dan bagikan ke kolega yang membutuhkan.',
-      footer_hint: 'Save & Share 📌',
-      points: ['📌 Simpan untuk referensi nanti', '💬 Tulis pendapatmu di kolom komentar'],
-      ctaButtonText: 'Simpan Panduan Ini 🔖',
-    });
-  } else {
-    fallbackSlides.push({
-      id: 'slide-1',
-      slide_number: 1,
-      type: 'hook',
-      badge: '🔥 Essential Blueprint',
-      stepBadge: 'OVERVIEW · 01',
-      title: effectiveTitle,
-      highlightWord: 'Core Guide',
-      body: chunks[1] || 'Here is the key synthesis distilled directly from your source material.',
-      footer_hint: 'Swipe to learn 👉',
-      points: [
-        chunks[2] ? chunks[2].slice(0, 60) : 'Extracted core insight',
-        chunks[3] ? chunks[3].slice(0, 60) : 'Actionable implementation',
-      ],
-      ctaButtonText: 'Read Full Guide →',
-    });
+  const stagesId = [
+    { badge: 'Tahap 01 · Fondasi', step: 'STEP 01 · FONDASI UTAMA', title: 'Fondasi Utama & Mindset Eksekusi', highlight: 'Fondasi Utama', defaultBody: 'Pahami akar masalah sebelum melangkah ke solusi teknis. Hilangkan hambatan awal terbesar agar progress berjalan konsisten.', p1: 'Audit titik friksi terbesar dalam alur kerja', p2: 'Prioritaskan 20% tindakan penentu 80% dampak hasil' },
+    { badge: 'Tahap 02 · Alur Kerja', step: 'STEP 02 · ALUR SISTEM', title: 'Alur Eksekusi Taktis & Penerapan', highlight: 'Eksekusi Taktis', defaultBody: 'Terapkan metode teruji langkah demi langkah. Hindari multitasking berlebihan dan fokus pada satu hasil berkualitas.', p1: 'Bangun checklist operasional terstandarisasi', p2: 'Validasi setiap hasil dengan kriteria yang jelas' },
+    { badge: 'Tahap 03 · Optimasi', step: 'STEP 03 · OPTIMASI PROSES', title: 'Optimasi & Pengurangan Bottleneck', highlight: 'Optimasi Proses', defaultBody: 'Identifikasi proses lambat dan sederhanakan alurnya. Manfaatkan automasi agar waktu berharga Anda tidak terbuang sia-sia.', p1: 'Otomasi tugas repetitif bernilai rendah', p2: 'Evaluasi metrik efisiensi secara berkala' },
+    { badge: 'Tahap 04 · Scale Up', step: 'STEP 04 · SKALA BESAR', title: 'Kunci Skalabilitas & Konsistensi', highlight: 'Skalabilitas', defaultBody: 'Setelah sistem berjalan stabil, tingkatkan skala secara terkontrol tanpa mengorbankan kualitas dan akurasi.', p1: 'Dokumentasikan pola keberhasilan yang terbukti', p2: 'Duplikasi sistem untuk menangani beban lebih besar' },
+    { badge: 'Tahap 05 · Evaluasi', step: 'STEP 05 · EVALUASI AKHIR', title: 'Evaluasi Kinerja & Peningkatan Mutu', highlight: 'Peningkatan Mutu', defaultBody: 'Pantau metrik keberhasilan secara obyektif dan lakukan penyesuaian cepat terhadap bagian yang belum optimal.', p1: 'Bandingkan hasil nyata dengan target awal', p2: 'Perbaiki celah kecil sebelum menjadi masalah besar' },
+  ];
 
-    for (let i = 2; i < count; i++) {
-      const step = i - 1;
-      const chunkIdx = 3 + (step - 1) * 2;
-      fallbackSlides.push({
-        id: `slide-${i}`,
-        slide_number: i,
-        type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Step 0${step}`,
-        stepBadge: `STEP 0${step} · ACTION`,
-        title: chunks[chunkIdx] ? chunks[chunkIdx].slice(0, 45) : `Core Concept ${step}`,
-        highlightWord: `Step ${step}`,
-        body: chunks[chunkIdx] || `Synthesized key takeaway and execution steps for module ${step}.`,
-        points: [
-          (chunks[chunkIdx] || 'Execute structured action').slice(0, 70),
-          (chunks[chunkIdx + 1] || 'Measure consistent progress').slice(0, 70),
-        ],
-        footer_hint: 'Next step ahead 🚀',
-      });
-    }
+  const stagesEn = [
+    { badge: 'Phase 01 · Foundation', step: 'STEP 01 · CORE PRINCIPLE', title: 'Core Foundations & Mindset Shift', highlight: 'Core Foundation', defaultBody: 'Understand the root friction points before jumping into execution. Remove the biggest blocker to maintain momentum.', p1: 'Audit high-friction areas in current workflows', p2: 'Focus on high-leverage 80/20 execution points' },
+    { badge: 'Phase 02 · Execution', step: 'STEP 02 · TACTICAL ACTION', title: 'Tactical Execution & Workflow', highlight: 'Tactical Action', defaultBody: 'Apply proven step-by-step methodologies without distraction. Prioritize high-quality single-task progress.', p1: 'Establish clear operational checklists', p2: 'Validate each milestone with concrete criteria' },
+    { badge: 'Phase 03 · Optimization', step: 'STEP 03 · SYSTEM OPTIMIZATION', title: 'Process Optimization & Flow', highlight: 'System Optimization', defaultBody: 'Eliminate repetitive bottlenecks and automate low-value chores to safeguard your creative energy.', p1: 'Automate repetitive and tedious tasks', p2: 'Track efficiency metrics regularly' },
+    { badge: 'Phase 04 · Scale Up', step: 'STEP 04 · SCALABILITY', title: 'Scaling Impact & Consistency', highlight: 'Scalability', defaultBody: 'Once the base system runs smoothly, scale capacity predictably without sacrificing standard quality.', p1: 'Document proven repeatable playbooks', p2: 'Expand output capacity systematically' },
+  ];
+
+  const stages = isId ? stagesId : stagesEn;
+
+  // Slide 1: Hook
+  fallbackSlides.push({
+    id: 'slide-1',
+    slide_number: 1,
+    type: 'hook',
+    badge: isId ? '🔥 Materi Utama' : '🔥 Essential Blueprint',
+    stepBadge: 'OVERVIEW · 01',
+    title: effectiveTitle,
+    highlightWord: effectiveTitle.split(' ')[0] || (isId ? 'Panduan' : 'Overview'),
+    body: cleanSentences[0] || (isId
+      ? 'Berikut adalah rangkuman poin inti dan pembelajaran penting yang disarikan langsung dari materi sumber.'
+      : 'Here is the key synthesis distilled directly from your source material.'),
+    footer_hint: isId ? 'Geser ke kanan 👉' : 'Swipe to learn 👉',
+    points: [
+      cleanSentences[1] ? cleanSentences[1].slice(0, 65) : (isId ? 'Poin penting disarikan dari naskah' : 'Extracted core insight'),
+      cleanSentences[2] ? cleanSentences[2].slice(0, 65) : (isId ? 'Langkah praktis siap terapkan' : 'Actionable implementation'),
+    ],
+    ctaButtonText: isId ? 'Baca Panduan Lengkap →' : 'Read Full Guide →',
+  });
+
+  // Middle Slides
+  for (let i = 2; i < count; i++) {
+    const stepIdx = i - 2;
+    const stage = stages[stepIdx % stages.length];
+    const sentenceA = cleanSentences[i] || stage.defaultBody;
+    const sentenceB = cleanSentences[i + count] || stage.p1;
+    const sentenceC = cleanSentences[i + count * 2] || stage.p2;
+
+    const slideTitle = cleanSentences[i] && cleanSentences[i].length < 45
+      ? cleanSentences[i]
+      : `${stage.title}`;
 
     fallbackSlides.push({
-      id: `slide-${count}`,
-      slide_number: count,
-      type: 'cta',
-      badge: '⚡ Take Action',
-      stepBadge: 'YOU ARE ALL SET',
-      title: 'Ready To Level Up Your Game?',
-      highlightWord: 'Level Up',
-      body: 'Bookmark this carousel for quick reference and share your key takeaway in the comments.',
-      footer_hint: 'Save & Bookmark 📌',
-      points: ['📌 Save this for later', '💬 Drop your thoughts below'],
-      ctaButtonText: 'Save this guide 🔖',
+      id: `slide-${i}`,
+      slide_number: i,
+      type: i % 2 === 0 ? 'bullet' : 'content',
+      badge: stage.badge,
+      stepBadge: stage.step,
+      title: slideTitle,
+      highlightWord: stage.highlight,
+      body: sentenceA,
+      points: [sentenceB.slice(0, 75), sentenceC.slice(0, 75)],
+      footer_hint: isId ? 'Lanjut ke poin berikutnya 🚀' : 'Next step ahead 🚀',
     });
   }
+
+  // CTA Slide
+  fallbackSlides.push({
+    id: `slide-${count}`,
+    slide_number: count,
+    type: 'cta',
+    badge: isId ? '⚡ Kesimpulan & Aksi' : '⚡ Take Action',
+    stepBadge: 'YOU ARE ALL SET',
+    title: isId ? 'Mulai Terapkan Insight Ini!' : 'Ready To Level Up Your Game?',
+    highlightWord: isId ? 'Terapkan Insight' : 'Level Up',
+    body: isId
+      ? 'Simpan ringkasan materi ini agar tidak hilang, dan bagikan ke kolega yang membutuhkan.'
+      : 'Bookmark this carousel for quick reference and share your key takeaway in the comments.',
+    footer_hint: isId ? 'Save & Share 📌' : 'Save & Bookmark 📌',
+    points: [
+      isId ? '📌 Simpan untuk referensi nanti' : '📌 Save this for later',
+      isId ? '💬 Tulis pendapatmu di kolom komentar' : '💬 Drop your thoughts below',
+    ],
+    ctaButtonText: isId ? 'Simpan Panduan Ini 🔖' : 'Save this guide 🔖',
+  });
 
   return fallbackSlides;
 }
@@ -1515,7 +1500,7 @@ Rules:
         userPrompt,
       });
 
-      const parsed = JSON.parse(raw);
+      const parsed = sanitizeAndParseJSON(raw);
       if (parsed.ebook) {
         res.json({ ebook: parsed.ebook });
       } else {
@@ -1601,7 +1586,7 @@ Key Points: ${m.introCard?.checklist?.join(', ') || m.steps?.map((s: any) => s.t
         userPrompt,
       });
 
-      const parsed = JSON.parse(raw);
+      const parsed = sanitizeAndParseJSON(raw);
       const formatted = (parsed.slides || []).map((s: any, idx: number) => ({
         id: `slide-distill-${Date.now()}-${idx}`,
         slide_number: idx + 1,
