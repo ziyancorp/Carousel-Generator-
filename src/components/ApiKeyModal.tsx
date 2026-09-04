@@ -102,18 +102,21 @@ const PROVIDERS: {
   {
     id: 'xkiro',
     name: 'XKiro API',
-    badge: '1M Token • Qwen Free',
-    defaultModel: 'qwen/qwen3.8-max:free',
+    badge: 'Model Gratis • Paling Tetap',
+    defaultModel: 'deepseek/deepseek-chat-v3.1',
     models: [
+      'deepseek/deepseek-chat-v3.1',
+      'openai/gpt-5.3-codex-spark',
       'qwen/qwen3.8-max:free',
-      'qwen/qwen-2.5-72b-instruct',
-      'deepseek/deepseek-r1:free',
-      'meta-llama/llama-3.3-70b-instruct'
+      'qwen/qwen3.7-max:free',
+      'qwen/qwen3.6-plus:free',
+      'minimax/minimax-m3:free',
+      'meta-llama/llama-3.3-70b-instruct',
     ],
     placeholder: 'sk-xt-...',
     getKeyUrl: 'https://api.xkiro.com',
     defaultBaseUrl: 'https://api.xkiro.com/v1',
-    description: 'Akses API OpenAI-compatible berkecepatan tinggi dengan context window 1 Juta Token & model Qwen Max gratis permanen.',
+    description: 'Akses API OpenAI-compatible berkecepatan tinggi dengan model gratis: DeepSeek Chat v3.1 (paling stabil & tetap), OpenAI GPT-5.3-Codex-Spark (ultra-low-latency 128K), dan Qwen 3.8 Max.',
   },
   {
     id: 'custom',

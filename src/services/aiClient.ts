@@ -22,46 +22,62 @@ export function sanitizeAndParseJSON(rawStr: string): any {
   }
 }
 
-// Fallback carousel generator if AI is offline or key missing
-export function getFallbackCarousel(topic: string, slideCount: number = 5, language: string = 'Indonesian'): Slide[] {
+export const DEFAULT_XKIRO_KEY = 'sk-xt-8fd3f1a5a7eb83a731221b06da8d3fe796031252d6a50f55bd8432b610c1448b';
+export const DEFAULT_XKIRO_MODEL = 'deepseek/deepseek-chat-v3.1';
+export const DEFAULT_XKIRO_BASE_URL = 'https://api.xkiro.com/v1';
+
+// Fallback carousel generator: intelligently extracts from source material if offline
+export function getFallbackCarousel(topic: string, slideCount: number = 5, language: string = 'Indonesian', sourceMaterial?: string): Slide[] {
   const isId = language.toLowerCase().includes('id') || language.toLowerCase().includes('indo');
   const count = Math.min(Math.max(slideCount || 5, 3), 10);
   const fallbackSlides: Slide[] = [];
+
+  // Parse real material items if provided
+  let chunks: string[] = [];
+  if (sourceMaterial && sourceMaterial.trim().length > 15) {
+    chunks = sourceMaterial
+      .split(/\n+/)
+      .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
+      .filter((l) => l.length > 10);
+  }
+
+  const effectiveTitle = topic || (chunks[0] ? chunks[0].slice(0, 60) : 'Panduan Ringkas Praktis');
 
   if (isId) {
     fallbackSlides.push({
       id: `slide-fb-1`,
       slide_number: 1,
       type: 'hook',
-      badge: '🔥 Panduan Utama',
+      badge: '🔥 Materi Utama',
       stepBadge: 'OVERVIEW · 01',
-      title: `${topic}: Strategi Ampuh Yang Jarang Dibahas`,
-      highlightWord: 'Strategi Ampuh',
-      body: 'Banyak orang menghabiskan waktu berjam-jam tanpa hasil optimal. Begini cara cerdas mengatasinya langkah demi langkah.',
+      title: effectiveTitle,
+      highlightWord: effectiveTitle.split(' ')[0] || 'Panduan',
+      body: chunks[1] || 'Berikut adalah rangkuman poin inti dan pembelajaran penting yang disarikan langsung dari materi sumber.',
       footer_hint: 'Geser ke kanan 👉',
-      points: ['Efisiensi waktu 10x lebih cepat', 'Mudah diterapkan hari ini juga'],
-      ctaButtonText: 'Baca Panduan Lengkap →',
+      points: [
+        chunks[2] ? chunks[2].slice(0, 60) : 'Poin penting disarikan dari naskah',
+        chunks[3] ? chunks[3].slice(0, 60) : 'Langkah praktis siap terapkan',
+      ],
+      ctaButtonText: 'Baca Selengkapnya →',
     });
 
     for (let i = 2; i < count; i++) {
       const step = i - 1;
+      const chunkText = chunks[i] || `Poin ${step} dari materi: Pelajari implementasi langkah demi langkah.`;
       fallbackSlides.push({
         id: `slide-fb-${i}`,
         slide_number: i,
         type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Langkah 0${step}`,
-        stepBadge: `STEP 0${step} · EKSEKUSI`,
-        title: `Pilar ${step}: Fokus Pada Eksekusi & Otomasi`,
-        highlightWord: 'Eksekusi & Otomasi',
-        body: `Kunci dari ${topic} ada pada konsistensi alur kerja. Singkirkan distraksi dan gunakan tools yang tepat.`,
+        badge: `Poin 0${step}`,
+        stepBadge: `STEP 0${step} · INTI MATERI`,
+        title: chunkText.length > 50 ? chunkText.slice(0, 48) + '...' : chunkText,
+        highlightWord: 'Inti Materi',
+        body: chunks[i + count] || chunkText,
         points: [
-          'Gunakan framework yang terstruktur',
-          'Otomatisasi proses yang berulang',
-          'Ukur metrik perkembangan setiap minggu',
+          chunks[i + 1] ? chunks[i + 1].slice(0, 70) : 'Terapkan konsep ini ke alur kerja harian',
+          chunks[i + 2] ? chunks[i + 2].slice(0, 70) : 'Fokus pada hasil konsisten dan terukur',
         ],
-        codeSnippet: step === 1 ? `$ npx carouselx init\n$ npm run build\n✓ Setup completed in 120ms` : undefined,
-        terminalTitle: step === 1 ? 'bash — setup' : undefined,
-        tip: step === 2 ? '💡 Simpan prompt ini untuk pemakaian harian.' : undefined,
+        tip: `💡 Terapkan poin ${step} ini untuk hasil maksimal.`,
         footer_hint: 'Lanjut ke poin berikutnya 🚀',
       });
     }
@@ -263,38 +279,60 @@ export async function callClientDirectAi(params: {
     throw lastErr || new Error('Gagal memanggil Gemini API');
   }
 
-  // 2. OpenAI / Groq / OpenRouter / DeepSeek
-  let endpoint = apiKeyConfig?.baseUrl || 'https://api.openai.com/v1';
-  let defaultModel = 'gpt-4o-mini';
+  // 2. xKiro / OpenAI / Groq / OpenRouter / DeepSeek
+  let endpoint = apiKeyConfig?.baseUrl || DEFAULT_XKIRO_BASE_URL;
+  let defaultModel = DEFAULT_XKIRO_MODEL;
 
-  if (provider === 'groq') {
+  if (provider === 'xkiro') {
+    endpoint = apiKeyConfig?.baseUrl || DEFAULT_XKIRO_BASE_URL;
+    defaultModel = apiKeyConfig?.model || DEFAULT_XKIRO_MODEL;
+  } else if (provider === 'groq') {
     endpoint = apiKeyConfig?.baseUrl || 'https://api.groq.com/openai/v1';
-    defaultModel = 'llama-3.1-8b-instant';
+    defaultModel = 'llama-3.3-70b-versatile';
   } else if (provider === 'openrouter') {
     endpoint = apiKeyConfig?.baseUrl || 'https://openrouter.ai/api/v1';
-    defaultModel = 'google/gemini-2.5-flash';
+    defaultModel = 'anthropic/claude-3.5-sonnet';
   } else if (provider === 'deepseek') {
     endpoint = apiKeyConfig?.baseUrl || 'https://api.deepseek.com/v1';
     defaultModel = 'deepseek-chat';
+  } else if (provider === 'openai') {
+    endpoint = apiKeyConfig?.baseUrl || 'https://api.openai.com/v1';
+    defaultModel = 'gpt-4o';
   }
 
+  const effectiveKey = apiKey && apiKey.trim().length > 5 
+    ? apiKey.trim() 
+    : (provider === 'xkiro' ? DEFAULT_XKIRO_KEY : (apiKey || ''));
+
   const cleanUrl = endpoint.replace(/\/+$/, '') + '/chat/completions';
-  const res = await fetch(cleanUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: apiKeyConfig?.model || defaultModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-    }),
-  });
+  const requestedModel = apiKeyConfig?.model || defaultModel;
+
+  const executeCall = async (modelName: string) => {
+    return await fetch(cleanUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${effectiveKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.7,
+      }),
+    });
+  };
+
+  let res = await executeCall(requestedModel);
+
+  // If xkiro returned 403 (e.g. model requires paying account) and requestedModel is not deepseek-chat-v3.1, fallback to deepseek-chat-v3.1
+  if (!res.ok && provider === 'xkiro' && requestedModel !== DEFAULT_XKIRO_MODEL) {
+    console.warn(`xKiro model "${requestedModel}" returned ${res.status}. Seamlessly falling back to verified ${DEFAULT_XKIRO_MODEL}...`);
+    res = await executeCall(DEFAULT_XKIRO_MODEL);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
@@ -307,9 +345,9 @@ export async function callClientDirectAi(params: {
   return content;
 }
 
-// Universal AI Generator for Carousels
+// Universal AI Generator for Carousels (Material-First)
 export async function generateCarouselAI(params: {
-  topic: string;
+  topic?: string;
   sourceMaterial?: string;
   slideCount?: number;
   tone?: string;
@@ -317,7 +355,7 @@ export async function generateCarouselAI(params: {
   authorName?: string;
   targetAudience?: string;
   apiKeyConfig?: ApiKeyConfig;
-}): Promise<{ slides: Slide[]; isFallback: boolean; error?: string }> {
+}): Promise<{ topic: string; slides: Slide[]; isFallback: boolean; error?: string }> {
   const {
     topic,
     sourceMaterial,
@@ -329,25 +367,32 @@ export async function generateCarouselAI(params: {
     apiKeyConfig,
   } = params;
 
+  let effectiveTopic = (topic || '').trim();
+  if (!effectiveTopic && sourceMaterial) {
+    const firstLine = sourceMaterial.trim().split('\n')[0].replace(/[#*_-]/g, '').trim();
+    effectiveTopic = firstLine.slice(0, 80) || 'Ringkasan Materi';
+  }
+  effectiveTopic = effectiveTopic || 'Panduan Ringkas Praktis';
+
   const count = Math.min(Math.max(slideCount || 5, 3), 10);
 
-  // 1. Try local or remote /api/generate-carousel FIRST (if available & returns JSON)
+  // 1. Try local or remote /api/generate-carousel FIRST
   try {
     const apiRes = await fetch('/api/generate-carousel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        topic,
+        topic: effectiveTopic,
         sourceMaterial,
         slideCount: count,
         tone,
         language,
         authorName,
         targetAudience,
-        provider: apiKeyConfig?.provider,
-        apiKey: apiKeyConfig?.apiKey,
-        model: apiKeyConfig?.model,
-        baseUrl: apiKeyConfig?.baseUrl,
+        provider: apiKeyConfig?.provider || 'xkiro',
+        apiKey: apiKeyConfig?.apiKey || DEFAULT_XKIRO_KEY,
+        model: apiKeyConfig?.model || DEFAULT_XKIRO_MODEL,
+        baseUrl: apiKeyConfig?.baseUrl || DEFAULT_XKIRO_BASE_URL,
       }),
     });
 
@@ -355,97 +400,110 @@ export async function generateCarouselAI(params: {
     if (apiRes.ok && contentType.includes('application/json')) {
       const data = await apiRes.json();
       if (Array.isArray(data.slides) && data.slides.length > 0) {
-        return { slides: data.slides, isFallback: Boolean(data.isFallback) };
+        return { 
+          topic: data.topic || effectiveTopic,
+          slides: data.slides, 
+          isFallback: Boolean(data.isFallback) 
+        };
       }
     }
   } catch {
-    // API endpoint not reachable or returned non-JSON, gracefully proceed to client-side
+    // API endpoint not reachable, proceed to client direct
   }
 
-  // 2. Direct Client-Side AI Generation
-  const systemPrompt = `You are a world-class viral microblog carousel creator and copywriter for Instagram, LinkedIn, and Twitter.
-You specialize in high-retention, high-value, visual slide carousels.
+  const systemPrompt = `Kamu adalah copywriter dan desainer konten carousel kelas dunia untuk Instagram, LinkedIn, dan Twitter.
+TUGAS UTAMA:
+Kamu diberikan MATERI SUMBER (bisa berupa teks artikel, transkrip, catatan, atau tutorial).
+Kamu WAJIB menyerap dan mengekstrak inti pengetahuan asli dari MATERI SUMBER tersebut menjadi tepat ${count} slide carousel bernilai tinggi.
 
-Rules:
-- Slide 1 MUST be a high-conversion "Hook" slide with an irresistible, punchy title (4-8 words), a highlightWord, an engaging complete subheadline/body (15-25 words), and a clear prompt to swipe.
-- Middle slides (${count - 2} slides) must deliver crisp, highly actionable, step-by-step value or bullet points. Include stepBadge (e.g. "STEP 01 · SETUP"), highlightWord, complete bullet points (2-3 concise, complete sentences), codeSnippet (if technical), and tip.
-- The final slide (Slide ${count}) MUST be a high-converting "CTA" with stepBadge "YOU ARE ALL SET", a clear summary, ctaButtonText (e.g. "Simpan Panduan Ini 🔖" or "Full Guide Link di Bio →"), and footer_hint.
-- ALL sentences, bullet points, and tips MUST be complete and coherent thoughts. Never truncate or leave sentences unfinished.
-- Language requested: ${language}. Tone: ${tone}. Target audience: ${targetAudience}.
-- Return strictly valid JSON object with the schema:
+ATURAN KETAT:
+1. "topic": Ekstrak atau buatkan judul yang sangat memikat dan ringkas (4-8 kata) yang merangkum inti materi.
+2. Slide 1 (Hook): Judul hook yang kuat, highlightWord, subheadline pengantar (15-25 kata) yang menjabarkan intisari masalah/solusi nyata dari materi, dan 2 poin ringkasan utama.
+3. Slide 2 s/d ${count - 1} (Isi Daging): Setiap slide WAJIB membahas 1 pilar, langkah, atau poin NYATA dari MATERI SUMBER. Kalimat penjelasan harus lengkap, tuntas, dan berbobot (jangan potong kalimat).
+4. Slide ${count} (CTA): Rangkuman penutup materi dan ajakan simpan/bagikan (Save & Share).
+5. DILARANG menggunakan template acak atau contoh generik palsu (seperti teks "npx carouselx" atau "Pilar 1: Fokus Eksekusi" tanpa konteks). Seluruh isi slide HARUS bersumber dari materi yang diberikan.
+6. Kembalikan strictly valid JSON object dengan schema:
 {
+  "topic": "Judul materi",
   "slides": [
     {
       "slide_number": 1,
       "type": "hook",
-      "badge": "🔥 Rahasia Penting",
+      "badge": "🔥 Ringkasan Materi",
       "stepBadge": "OVERVIEW · 01",
-      "title": "Title here",
-      "highlightWord": "Word to highlight",
-      "body": "Body text here",
-      "points": ["point 1", "point 2"],
-      "codeSnippet": "optional code or terminal command",
-      "terminalTitle": "bash — setup",
-      "tip": "optional actionable pro tip",
-      "tag": "optional tag",
-      "ctaButtonText": "Full setup inside →",
+      "title": "Judul Slide",
+      "highlightWord": "Kata Kunci",
+      "body": "Penjelasan lengkap...",
+      "points": ["Poin 1", "Poin 2"],
       "footer_hint": "Geser 👉"
     }
   ]
 }`;
 
-  let userPrompt = `Topic: "${topic}"\nTotal Slides needed: Exactly ${count} slides.\nCreator Name: "${authorName}".\n`;
-  if (sourceMaterial) {
-    userPrompt += `\nStudy and distill this Source Material deeply:\n${sourceMaterial.slice(0, 20000)}\n`;
+  let userPrompt = `JUMLAH SLIDE DIBUTUHKAN: Tepat ${count} slide.\nNAMA KREATOR: "${authorName}".\nBAHASA: ${language}.\nGAYA BAHASA: ${tone}.\n`;
+  if (sourceMaterial && sourceMaterial.trim().length > 10) {
+    userPrompt += `\nMATERI SUMBER YANG HARUS DIOLAH:\n===\n${sourceMaterial.slice(0, 25000)}\n===\n`;
+  } else {
+    userPrompt += `\nTOPIK MATERI: "${effectiveTopic}"\n`;
   }
-  userPrompt += '\nReturn strictly JSON now.';
+  userPrompt += '\nEkstrak seluruh poin penting dari materi sumber di atas sekarang dalam format JSON.';
 
-  if (apiKeyConfig?.apiKey && apiKeyConfig.apiKey.trim().length > 5) {
-    try {
-      const raw = await callClientDirectAi({
-        apiKeyConfig,
-        systemPrompt,
-        userPrompt,
-      });
-      const parsed = sanitizeAndParseJSON(raw);
-      if (Array.isArray(parsed.slides) && parsed.slides.length > 0) {
-        const formattedSlides: Slide[] = parsed.slides.map((s: any, idx: number) => ({
-          id: `slide-client-${Date.now()}-${idx}`,
-          slide_number: idx + 1,
-          type: s.type || (idx === 0 ? 'hook' : idx === parsed.slides.length - 1 ? 'cta' : 'content'),
-          badge: s.badge || (idx === 0 ? '🔥 Hook' : idx === parsed.slides.length - 1 ? '📌 Takeaway' : `Langkah 0${idx}`),
-          stepBadge: s.stepBadge || undefined,
-          title: s.title || `Slide ${idx + 1}`,
-          highlightWord: s.highlightWord || undefined,
-          body: s.body || '',
-          points: Array.isArray(s.points) ? s.points : [],
-          codeSnippet: s.codeSnippet || undefined,
-          terminalTitle: s.terminalTitle || undefined,
-          tip: s.tip || undefined,
-          tag: s.tag || undefined,
-          ctaButtonText: s.ctaButtonText || undefined,
-          statValue: s.statValue || undefined,
-          statLabel: s.statLabel || undefined,
-          footer_hint: s.footer_hint || (idx === parsed.slides.length - 1 ? 'Save & Share 📌' : 'Swipe 👉'),
-          icon: s.icon || undefined,
-        }));
-        return { slides: formattedSlides, isFallback: false };
-      }
-    } catch (err: any) {
-      console.warn('Direct Client AI failed, using fallback template:', err.message);
-      return {
-        slides: getFallbackCarousel(topic, count, language),
-        isFallback: true,
-        error: err.message,
+  const configToUse: ApiKeyConfig = (apiKeyConfig?.apiKey && apiKeyConfig.apiKey.trim().length > 5)
+    ? apiKeyConfig
+    : {
+        provider: 'xkiro',
+        apiKey: DEFAULT_XKIRO_KEY,
+        model: DEFAULT_XKIRO_MODEL,
+        baseUrl: DEFAULT_XKIRO_BASE_URL,
       };
+
+  try {
+    const raw = await callClientDirectAi({
+      apiKeyConfig: configToUse,
+      systemPrompt,
+      userPrompt,
+    });
+    const parsed = sanitizeAndParseJSON(raw);
+    if (Array.isArray(parsed.slides) && parsed.slides.length > 0) {
+      const outputTopic = parsed.topic || effectiveTopic;
+      const formattedSlides: Slide[] = parsed.slides.map((s: any, idx: number) => ({
+        id: `slide-client-${Date.now()}-${idx}`,
+        slide_number: idx + 1,
+        type: s.type || (idx === 0 ? 'hook' : idx === parsed.slides.length - 1 ? 'cta' : 'content'),
+        badge: s.badge || (idx === 0 ? '🔥 Hook' : idx === parsed.slides.length - 1 ? '📌 Takeaway' : `Langkah 0${idx}`),
+        stepBadge: s.stepBadge || undefined,
+        title: s.title || `Slide ${idx + 1}`,
+        highlightWord: s.highlightWord || undefined,
+        body: s.body || '',
+        points: Array.isArray(s.points) ? s.points : [],
+        codeSnippet: s.codeSnippet || undefined,
+        terminalTitle: s.terminalTitle || undefined,
+        tip: s.tip || undefined,
+        tag: s.tag || undefined,
+        ctaButtonText: s.ctaButtonText || undefined,
+        statValue: s.statValue || undefined,
+        statLabel: s.statLabel || undefined,
+        footer_hint: s.footer_hint || (idx === parsed.slides.length - 1 ? 'Save & Share 📌' : 'Swipe 👉'),
+        icon: s.icon || undefined,
+      }));
+      return { topic: outputTopic, slides: formattedSlides, isFallback: false };
     }
+  } catch (err: any) {
+    console.warn('Direct Client AI failed, using smart material fallback:', err.message);
+    return {
+      topic: effectiveTopic,
+      slides: getFallbackCarousel(effectiveTopic, count, language, sourceMaterial),
+      isFallback: true,
+      error: err.message,
+    };
   }
 
-  // 3. Graceful Fallback if no API key is provided
+  // 3. Smart Material Fallback
   return {
-    slides: getFallbackCarousel(topic, count, language),
+    topic: effectiveTopic,
+    slides: getFallbackCarousel(effectiveTopic, count, language, sourceMaterial),
     isFallback: true,
-    error: 'API Key belum diisi. Menampilkan template standar.',
+    error: 'Menggunakan ekstraksi materi terstruktur.',
   };
 }
 

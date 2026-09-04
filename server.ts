@@ -1,11 +1,14 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { PDFParse } from 'pdf-parse';
 
 dotenv.config();
+
+export const DEFAULT_XKIRO_KEY = 'sk-xt-8fd3f1a5a7eb83a731221b06da8d3fe796031252d6a50f55bd8432b610c1448b';
+export const DEFAULT_XKIRO_MODEL = 'deepseek/deepseek-chat-v3.1';
+export const DEFAULT_XKIRO_BASE_URL = 'https://api.xkiro.com/v1';
 
 const app = express();
 const PORT = 3000;
@@ -48,7 +51,7 @@ interface UniversalAiParams {
 
 async function callUniversalAi(params: UniversalAiParams): Promise<string> {
   const {
-    provider = 'gemini',
+    provider = 'xkiro',
     apiKey,
     model,
     baseUrl,
@@ -171,8 +174,8 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
     targetUrl = targetUrl || 'https://api.deepseek.com/v1';
     defaultModelName = 'deepseek-chat';
   } else if (provider === 'xkiro') {
-    targetUrl = targetUrl || 'https://api.xkiro.com/v1';
-    defaultModelName = 'qwen/qwen3.8-max:free';
+    targetUrl = targetUrl || DEFAULT_XKIRO_BASE_URL;
+    defaultModelName = DEFAULT_XKIRO_MODEL;
   } else if (provider === 'groq') {
     targetUrl = targetUrl || 'https://api.groq.com/openai/v1';
     defaultModelName = 'llama-3.3-70b-versatile';
@@ -190,16 +193,20 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
 
   const endpoint = targetUrl.replace(/\/+$/, '') + '/chat/completions';
   const modelToUse = model || defaultModelName;
+  const keyToUse = apiKey && apiKey.trim().length > 5 
+    ? apiKey.trim() 
+    : (provider === 'xkiro' ? (process.env.XKIRO_API_KEY || DEFAULT_XKIRO_KEY) : (apiKey || 'no-key'));
 
-  try {
-    const res = await fetch(endpoint, {
+  const doChatFetch = async (targetModel: string) => {
+    return await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey || 'no-key'}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Authorization: `Bearer ${keyToUse}`,
       },
       body: JSON.stringify({
-        model: modelToUse,
+        model: targetModel,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -208,6 +215,16 @@ async function callUniversalAi(params: UniversalAiParams): Promise<string> {
         temperature: 0.7,
       }),
     });
+  };
+
+  try {
+    let res = await doChatFetch(modelToUse);
+
+    // If xkiro returned 403 (e.g. model restricted to paying users) and target model is not deepseek-chat-v3.1, fallback to verified deepseek-chat-v3.1
+    if (!res.ok && provider === 'xkiro' && modelToUse !== DEFAULT_XKIRO_MODEL) {
+      console.warn(`xKiro model "${modelToUse}" failed with HTTP ${res.status}. Falling back to verified ${DEFAULT_XKIRO_MODEL}...`);
+      res = await doChatFetch(DEFAULT_XKIRO_MODEL);
+    }
 
     if (!res.ok) {
       const errText = await res.text();
@@ -588,57 +605,84 @@ app.post('/api/ingest/web', async (req, res) => {
       return;
     }
 
-    const webRes = await fetch(cleanUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-    });
-
-    if (!webRes.ok) {
-      throw new Error(`Failed to fetch website (${webRes.status} ${webRes.statusText})`);
-    }
-
-    const html = await webRes.text();
-
-    // Extract Title
     let title = 'Web Article';
-    const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/i);
-    const docTitle = html.match(/<title>(.*?)<\/title>/i);
-    if (ogTitle && ogTitle[1]) {
-      title = decodeXmlEntities(ogTitle[1]);
-    } else if (docTitle && docTitle[1]) {
-      title = decodeXmlEntities(docTitle[1]);
+    let fullText = '';
+
+    try {
+      const webRes = await fetch(cleanUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+
+      if (webRes.ok) {
+        const html = await webRes.text();
+        const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/i);
+        const docTitle = html.match(/<title>(.*?)<\/title>/i);
+        if (ogTitle && ogTitle[1]) {
+          title = decodeXmlEntities(ogTitle[1]);
+        } else if (docTitle && docTitle[1]) {
+          title = decodeXmlEntities(docTitle[1]);
+        }
+
+        const cleaned = html
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+          .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+          .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+          .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, '')
+          .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+          .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '');
+
+        const textMatches = Array.from(cleaned.matchAll(/<(?:p|h1|h2|h3|h4|li|blockquote)[^>]*>(.*?)<\/(?:p|h1|h2|h3|h4|li|blockquote)>/gi));
+        const extractedParagraphs: string[] = [];
+
+        for (const match of textMatches) {
+          const stripped = match[1].replace(/<[^>]+>/g, '').trim();
+          const decoded = decodeXmlEntities(stripped);
+          if (decoded.length > 20) {
+            extractedParagraphs.push(decoded);
+          }
+        }
+
+        fullText = extractedParagraphs.join('\n\n');
+        if (!fullText || fullText.length < 100) {
+          fullText = cleaned
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
+      }
+    } catch (scrapeErr: any) {
+      console.warn(`Direct web scrape failed: ${scrapeErr.message}. Trying Jina Reader...`);
     }
 
-    // Strip scripts, styles, iframes, SVGs, nav, headers, footers
-    const cleaned = html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-      .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
-      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-      .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, '')
-      .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
-      .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '');
-
-    // Extract paragraph and heading texts
-    const textMatches = Array.from(cleaned.matchAll(/<(?:p|h1|h2|h3|h4|li|blockquote)[^>]*>(.*?)<\/(?:p|h1|h2|h3|h4|li|blockquote)>/gi));
-    const extractedParagraphs: string[] = [];
-
-    for (const match of textMatches) {
-      const stripped = match[1].replace(/<[^>]+>/g, '').trim();
-      const decoded = decodeXmlEntities(stripped);
-      if (decoded.length > 20) {
-        extractedParagraphs.push(decoded);
+    // High-reliability fallback: Jina Reader API
+    if (!fullText || fullText.length < 100) {
+      try {
+        const jinaRes = await fetch(`https://r.jina.ai/${cleanUrl}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        });
+        if (jinaRes.ok) {
+          const jinaText = await jinaRes.text();
+          if (jinaText && jinaText.length > 50) {
+            const jinaTitleMatch = jinaText.match(/Title:\s*(.+)/i);
+            if (jinaTitleMatch && jinaTitleMatch[1]) {
+              title = jinaTitleMatch[1].trim();
+            }
+            fullText = jinaText.replace(/^Title:.*?\n/i, '').replace(/^URL Source:.*?\n/i, '').trim();
+          }
+        }
+      } catch (jinaErr: any) {
+        console.warn(`Jina reader failed: ${jinaErr.message}`);
       }
     }
 
-    let fullText = extractedParagraphs.join('\n\n');
-    if (!fullText || fullText.length < 100) {
-      fullText = cleaned
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    if (!fullText || fullText.length < 30) {
+      throw new Error('Gagal mengekstrak isi teks dari URL ini. Silakan salin naskah langsung ke kolom input.');
     }
 
     const words = fullText.split(/\s+/).filter(Boolean);
@@ -804,11 +848,21 @@ app.post('/api/validate-key', async (req, res) => {
   }
 });
 
-// Helper: Fallback Carousel Generator
-function getFallbackCarousel(topic: string, slideCount: number, language: string) {
+// Helper: Fallback Carousel Generator (Extracts from real material if provided)
+function getFallbackCarousel(topic: string, slideCount: number, language: string, sourceMaterial?: string) {
   const isId = language.toLowerCase().includes('id') || language.toLowerCase().includes('indo');
   const count = Math.min(Math.max(slideCount || 5, 3), 10);
 
+  // Parse real material chunks if provided
+  let chunks: string[] = [];
+  if (sourceMaterial && sourceMaterial.trim().length > 15) {
+    chunks = sourceMaterial
+      .split(/\n+/)
+      .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
+      .filter((l) => l.length > 10);
+  }
+
+  const effectiveTitle = topic || (chunks[0] ? chunks[0].slice(0, 60) : 'Panduan Ringkas Praktis');
   const fallbackSlides = [];
 
   if (isId) {
@@ -816,35 +870,34 @@ function getFallbackCarousel(topic: string, slideCount: number, language: string
       id: 'slide-1',
       slide_number: 1,
       type: 'hook',
-      badge: '🔥 Rahasia Penting',
+      badge: '🔥 Materi Utama',
       stepBadge: 'OVERVIEW · 01',
-      title: `${topic}: Strategi Ampuh Yang Jarang Dibahas`,
-      highlightWord: 'Strategi Ampuh',
-      body: 'Banyak orang menghabiskan waktu berjam-jam tanpa hasil optimal. Begini cara cerdas mengatasinya langkah demi langkah.',
+      title: effectiveTitle,
+      highlightWord: effectiveTitle.split(' ')[0] || 'Panduan',
+      body: chunks[1] || 'Berikut adalah rangkuman poin inti dan pembelajaran penting yang disarikan langsung dari materi sumber.',
       footer_hint: 'Geser ke kanan 👉',
-      points: ['Efisiensi waktu 10x lebih cepat', 'Mudah diterapkan hari ini juga'],
+      points: [
+        chunks[2] ? chunks[2].slice(0, 60) : 'Poin penting disarikan dari naskah',
+        chunks[3] ? chunks[3].slice(0, 60) : 'Langkah praktis siap terapkan',
+      ],
       ctaButtonText: 'Baca Panduan Lengkap →',
     });
 
     for (let i = 2; i < count; i++) {
       const step = i - 1;
+      const chunkIdx = 3 + (step - 1) * 2;
+      const pointA = chunks[chunkIdx] || `Langkah penting ke-${step} dari materi`;
+      const pointB = chunks[chunkIdx + 1] || 'Implementasi terarah dan terukur';
       fallbackSlides.push({
         id: `slide-${i}`,
         slide_number: i,
         type: step % 2 === 0 ? 'bullet' : 'content',
-        badge: `Langkah 0${step}`,
-        stepBadge: `STEP 0${step} · EKSEKUSI`,
-        title: `Pilar ${step}: Fokus Pada Eksekusi & Otomasi`,
-        highlightWord: 'Eksekusi & Otomasi',
-        body: `Kunci dari ${topic} ada pada konsistensi alur kerja. Singkirkan distraksi dan gunakan tools yang tepat.`,
-        points: [
-          'Gunakan framework yang terstruktur',
-          'Otomatisasi proses yang berulang',
-          'Ukur metrik perkembangan setiap minggu',
-        ],
-        codeSnippet: step === 1 ? `$ npx carouselx init\n$ npm run build\n✓ Setup completed in 120ms` : undefined,
-        terminalTitle: step === 1 ? 'bash — setup' : undefined,
-        tip: step === 2 ? '💡 Simpan prompt ini untuk pemakaian harian.' : undefined,
+        badge: `Poin 0${step}`,
+        stepBadge: `STEP 0${step} · MATERI`,
+        title: chunks[chunkIdx] ? chunks[chunkIdx].slice(0, 45) : `Pembahasan Poin ${step}`,
+        highlightWord: `Poin ${step}`,
+        body: chunks[chunkIdx] || `Rincian konsep dan langkah pembahasan penting ke-${step} dari materi sumber.`,
+        points: [pointA.slice(0, 70), pointB.slice(0, 70)],
         footer_hint: 'Lanjut ke poin berikutnya 🚀',
       });
     }
@@ -855,12 +908,12 @@ function getFallbackCarousel(topic: string, slideCount: number, language: string
       type: 'cta',
       badge: '⚡ Kesimpulan & Aksi',
       stepBadge: 'YOU ARE ALL SET',
-      title: 'Mulai Terapkan Sekarang Juga!',
-      highlightWord: 'Terapkan Sekarang',
-      body: 'Simpan postingan ini agar tidak lupa, dan bagikan ke teman kamu yang butuh insight ini.',
+      title: 'Mulai Terapkan Insight Ini!',
+      highlightWord: 'Terapkan Insight',
+      body: 'Simpan ringkasan materi ini agar tidak hilang, dan bagikan ke kolega yang membutuhkan.',
       footer_hint: 'Save & Share 📌',
       points: ['📌 Simpan untuk referensi nanti', '💬 Tulis pendapatmu di kolom komentar'],
-      ctaButtonText: 'Save this guide 🔖',
+      ctaButtonText: 'Simpan Panduan Ini 🔖',
     });
   } else {
     fallbackSlides.push({
@@ -869,29 +922,32 @@ function getFallbackCarousel(topic: string, slideCount: number, language: string
       type: 'hook',
       badge: '🔥 Essential Blueprint',
       stepBadge: 'OVERVIEW · 01',
-      title: `${topic}: The High-Impact Guide You Need`,
-      highlightWord: 'High-Impact',
-      body: 'Stop wasting hours doing things the hard way. Here is the exact framework to get 10x results effortlessly.',
+      title: effectiveTitle,
+      highlightWord: 'Core Guide',
+      body: chunks[1] || 'Here is the key synthesis distilled directly from your source material.',
       footer_hint: 'Swipe to learn 👉',
-      points: ['Saves 15+ hours weekly', 'Actionable step-by-step framework'],
+      points: [
+        chunks[2] ? chunks[2].slice(0, 60) : 'Extracted core insight',
+        chunks[3] ? chunks[3].slice(0, 60) : 'Actionable implementation',
+      ],
       ctaButtonText: 'Read Full Guide →',
     });
 
     for (let i = 2; i < count; i++) {
       const step = i - 1;
+      const chunkIdx = 3 + (step - 1) * 2;
       fallbackSlides.push({
         id: `slide-${i}`,
         slide_number: i,
         type: step % 2 === 0 ? 'bullet' : 'content',
         badge: `Step 0${step}`,
-        stepBadge: `STEP 0${step} · WORKFLOW`,
-        title: `Core Step ${step}: Streamline & Accelerate`,
-        highlightWord: 'Accelerate',
-        body: `Mastering ${topic} requires eliminating repetitive bottlenecks and setting up automated workflows.`,
+        stepBadge: `STEP 0${step} · ACTION`,
+        title: chunks[chunkIdx] ? chunks[chunkIdx].slice(0, 45) : `Core Concept ${step}`,
+        highlightWord: `Step ${step}`,
+        body: chunks[chunkIdx] || `Synthesized key takeaway and execution steps for module ${step}.`,
         points: [
-          'Audit your current friction points',
-          'Implement the 80/20 rule to high-leverage tasks',
-          'Track weekly milestones systematically',
+          (chunks[chunkIdx] || 'Execute structured action').slice(0, 70),
+          (chunks[chunkIdx + 1] || 'Measure consistent progress').slice(0, 70),
         ],
         footer_hint: 'Next step ahead 🚀',
       });
@@ -926,56 +982,62 @@ app.post('/api/generate-carousel', async (req, res) => {
       language = 'Indonesian',
       authorName = '@creator',
       targetAudience = 'Content creators, professionals, and students',
-      provider = 'gemini',
+      provider = 'xkiro',
       apiKey,
       model,
       baseUrl,
     } = req.body;
 
-    if (!topic || typeof topic !== 'string') {
-      res.status(400).json({ error: 'Topic is required' });
+    let finalTopic = (topic || '').trim();
+    if (!finalTopic && sourceMaterial) {
+      const firstLine = sourceMaterial.trim().split('\n')[0].replace(/[#*_-]/g, '').trim();
+      finalTopic = firstLine.slice(0, 80) || 'Ringkasan Materi';
+    }
+
+    if (!finalTopic && !sourceMaterial) {
+      res.status(400).json({ error: 'Materi sumber atau topik diperlukan.' });
       return;
     }
 
     const count = Math.min(Math.max(parseInt(slideCount, 10) || 5, 3), 10);
     const customKey = (req.headers['x-gemini-key'] as string) || apiKey;
 
-    const systemPrompt = `You are a world-class viral microblog carousel creator and copywriter for Instagram, LinkedIn, and Twitter.
-You specialize in high-retention, high-value, visual slide carousels.
+    const systemPrompt = `Kamu adalah copywriter dan desainer konten carousel kelas dunia untuk Instagram, LinkedIn, dan Twitter.
+TUGAS UTAMA:
+Kamu diberikan MATERI SUMBER (bisa berupa teks artikel, transkrip, catatan, atau tutorial).
+Kamu WAJIB menyerap dan mengekstrak inti pengetahuan asli dari MATERI SUMBER tersebut menjadi tepat ${count} slide carousel bernilai tinggi.
 
-Rules:
-- Slide 1 MUST be a high-conversion "Hook" slide with an irresistible, punchy title (4-8 words), a highlightWord, an engaging complete subheadline/body (15-25 words), and a clear prompt to swipe.
-- Middle slides (${count - 2} slides) must deliver crisp, highly actionable, step-by-step value or bullet points. Include stepBadge (e.g. "STEP 01 · SETUP"), highlightWord, complete bullet points (2-3 concise, complete sentences), codeSnippet (if technical), and tip.
-- The final slide (Slide ${count}) MUST be a high-converting "CTA" with stepBadge "YOU ARE ALL SET", a clear summary, ctaButtonText (e.g. "Simpan Panduan Ini 🔖" or "Full Guide Link di Bio →"), and footer_hint.
-- ALL sentences, bullet points, and tips MUST be complete and coherent thoughts. Never truncate or leave sentences unfinished.
-- Language requested: ${language}. Tone: ${tone}. Target audience: ${targetAudience}.
-- Return strictly valid JSON object with the schema:
+ATURAN KETAT:
+1. "topic": Ekstrak atau buatkan judul yang sangat memikat dan ringkas (4-8 kata) yang merangkum inti materi.
+2. Slide 1 (Hook): Judul hook yang kuat, highlightWord, subheadline pengantar (15-25 kata) yang menjabarkan intisari masalah/solusi nyata dari materi, dan 2 poin ringkasan utama.
+3. Slide 2 s/d ${count - 1} (Isi Daging): Setiap slide WAJIB membahas 1 pilar, langkah, atau poin NYATA dari MATERI SUMBER. Kalimat penjelasan harus lengkap, tuntas, dan berbobot (jangan potong kalimat).
+4. Slide ${count} (CTA): Rangkuman penutup materi dan ajakan simpan/bagikan (Save & Share).
+5. DILARANG menggunakan template acak atau contoh generik palsu (seperti teks "npx carouselx" atau "Pilar 1: Fokus Eksekusi" tanpa konteks). Seluruh isi slide HARUS bersumber dari materi yang diberikan.
+6. Kembalikan strictly valid JSON object dengan schema:
 {
+  "topic": "Judul materi",
   "slides": [
     {
       "slide_number": 1,
       "type": "hook",
-      "badge": "🔥 Rahasia Penting",
+      "badge": "🔥 Ringkasan Materi",
       "stepBadge": "OVERVIEW · 01",
-      "title": "Title here",
-      "highlightWord": "Word to highlight",
-      "body": "Body text here",
-      "points": ["point 1", "point 2"],
-      "codeSnippet": "optional code or terminal command",
-      "terminalTitle": "bash — setup",
-      "tip": "optional actionable pro tip",
-      "tag": "optional tag",
-      "ctaButtonText": "Full setup inside →",
+      "title": "Judul Slide",
+      "highlightWord": "Kata Kunci",
+      "body": "Penjelasan lengkap...",
+      "points": ["Poin 1", "Poin 2"],
       "footer_hint": "Geser 👉"
     }
   ]
 }`;
 
-    let userPrompt = `Topic: "${topic}"\nTotal Slides needed: Exactly ${count} slides.\nCreator Name: "${authorName}".\n`;
-    if (sourceMaterial) {
-      userPrompt += `\nStudy and distill this Source Material deeply:\n${sourceMaterial.slice(0, 20000)}\n`;
+    let userPrompt = `JUMLAH SLIDE DIBUTUHKAN: Tepat ${count} slide.\nNAMA KREATOR: "${authorName}".\nBAHASA: ${language}.\nGAYA BAHASA: ${tone}.\n`;
+    if (sourceMaterial && sourceMaterial.trim().length > 10) {
+      userPrompt += `\nMATERI SUMBER YANG HARUS DIOLAH:\n===\n${sourceMaterial.slice(0, 25000)}\n===\n`;
+    } else {
+      userPrompt += `\nTOPIK MATERI: "${finalTopic}"\n`;
     }
-    userPrompt += '\nReturn strictly JSON now.';
+    userPrompt += '\nEkstrak seluruh poin penting dari materi sumber di atas sekarang dalam format JSON.';
 
     try {
       const rawJson = await callUniversalAi({
@@ -987,7 +1049,8 @@ Rules:
         userPrompt,
       });
 
-      const parsed = JSON.parse(rawJson);
+      const parsed = sanitizeAndParseJSON(rawJson);
+      const outputTopic = parsed.topic || finalTopic;
       const formattedSlides = (parsed.slides || []).map((s: any, idx: number) => ({
         id: `slide-${Date.now()}-${idx}`,
         slide_number: idx + 1,
@@ -1010,13 +1073,15 @@ Rules:
       }));
 
       res.json({
-        slides: formattedSlides.length > 0 ? formattedSlides : getFallbackCarousel(topic, count, language),
+        topic: outputTopic,
+        slides: formattedSlides.length > 0 ? formattedSlides : getFallbackCarousel(outputTopic, count, language, sourceMaterial),
         isFallback: false,
       });
     } catch (aiErr: any) {
-      console.warn('AI call failed, using high-quality fallback:', aiErr.message);
-      const fallback = getFallbackCarousel(topic, count, language);
+      console.warn('AI call failed, using high-quality material fallback:', aiErr.message);
+      const fallback = getFallbackCarousel(finalTopic, count, language, sourceMaterial);
       res.json({
+        topic: finalTopic,
         slides: fallback,
         isFallback: true,
         error: aiErr.message,
@@ -1032,18 +1097,25 @@ Rules:
 app.post('/api/generate-ebook', async (req, res) => {
   try {
     const {
-      topic = 'Panduan Konten AI',
+      topic,
       sourceText,
       sourceType,
       sourceTitle,
       authorName = 'Arijal Meutuwah',
       moduleCount = 5,
       language = 'Indonesian',
-      provider = 'gemini',
+      provider = 'xkiro',
       apiKey,
       model,
       baseUrl,
     } = req.body;
+
+    let finalTopic = (topic || sourceTitle || '').trim();
+    if (!finalTopic && sourceText) {
+      const firstLine = sourceText.trim().split('\n')[0].replace(/[#*_-]/g, '').trim();
+      finalTopic = firstLine.slice(0, 80) || 'Master E-Book Panduan Praktis';
+    }
+    finalTopic = finalTopic || 'Master E-Book Panduan Praktis';
 
     const count = Math.min(Math.max(parseInt(moduleCount, 10) || 5, 3), 8);
 
@@ -1308,6 +1380,7 @@ Return strictly JSON with key "slides" array.`;
 // Vite / static middleware
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1326,4 +1399,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

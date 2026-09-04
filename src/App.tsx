@@ -26,7 +26,8 @@ import { generateCarouselAI, structureContentAI } from './services/aiClient';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveAppTab>('carousel');
-  const [topic, setTopic] = useState('Cara Automasi Riset & Bikin 30 Konten dalam 10 Menit Pakai AI');
+  const [topic, setTopic] = useState('');
+  const [sourceMaterial, setSourceMaterial] = useState('');
   const [slideCount, setSlideCount] = useState(5);
   const [authorName, setAuthorName] = useState<string>(() => {
     try {
@@ -162,22 +163,23 @@ export default function App() {
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  // Generate Carousel with AI (Client Fallback safe)
+  // Generate Carousel with AI (Material-First, Client & Server resilient)
   const handleGenerateCarousel = async () => {
-    if (!topic.trim()) {
+    if (!topic.trim() && !sourceMaterial.trim()) {
       setStatusType('error');
-      setStatusMessage('Silakan masukkan topik carousel terlebih dahulu.');
+      setStatusMessage('Silakan masukkan materi naskah atau topik terlebih dahulu.');
       setTimeout(() => setStatusMessage(''), 3000);
       return;
     }
 
     setIsGenerating(true);
     setStatusType('info');
-    setStatusMessage(`Membuat ${slideCount} slide dengan ${apiKeyConfig.provider.toUpperCase()} AI...`);
+    setStatusMessage(`Membedah materi & menyusun ${slideCount} slide dengan AI...`);
 
     try {
       const result = await generateCarouselAI({
-        topic,
+        topic: topic.trim(),
+        sourceMaterial: sourceMaterial.trim(),
         slideCount,
         tone,
         language,
@@ -187,13 +189,16 @@ export default function App() {
 
       if (result.slides && result.slides.length > 0) {
         setSlides(result.slides);
+        if (result.topic && (!topic.trim() || topic === 'Ringkasan Materi')) {
+          setTopic(result.topic);
+        }
         setActiveSlideIndex(0);
         setMobileView('preview');
         setStatusType('success');
         setStatusMessage(
           result.isFallback
-            ? 'Format template siap digunakan.'
-            : `✓ ${result.slides.length} slide berhasil dibuat dengan ${apiKeyConfig.provider.toUpperCase()}!`
+            ? 'Carousel berhasil dirangkum dari materi Anda!'
+            : `✓ ${result.slides.length} slide berhasil diolah dari materi sumber!`
         );
       } else {
         throw new Error(result.error || 'Gagal menghasilkan slide.');
@@ -201,7 +206,7 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       setStatusType('error');
-      setStatusMessage(err.message || 'Terjadi kesalahan saat memanggil AI.');
+      setStatusMessage(err.message || 'Terjadi kesalahan saat memproses materi.');
     } finally {
       setIsGenerating(false);
       setTimeout(() => setStatusMessage(''), 3500);
@@ -462,6 +467,8 @@ export default function App() {
             <Sidebar
               topic={topic}
               onTopicChange={setTopic}
+              sourceMaterial={sourceMaterial}
+              onSourceMaterialChange={setSourceMaterial}
               slideCount={slideCount}
               onSlideCountChange={setSlideCount}
               authorName={authorName}
@@ -638,9 +645,10 @@ export default function App() {
           setStatusMessage(`E-Book "${newEbook.title}" berhasil disusun oleh AI!`);
           setTimeout(() => setStatusMessage(''), 3500);
         }}
-        onCarouselGenerated={(newSlides, newTopic) => {
+        onCarouselGenerated={(newSlides, newTopic, rawSourceText) => {
           setSlides(newSlides);
           setTopic(newTopic);
+          if (rawSourceText) setSourceMaterial(rawSourceText);
           setSlideCount(newSlides.length);
           setActiveTab('carousel');
           setMobileView('preview');

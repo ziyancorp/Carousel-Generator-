@@ -3,12 +3,14 @@ import {
   Wand2,
   Sparkles,
   RefreshCw,
-  Lightbulb,
   Cpu,
   User,
   ShieldCheck,
   RotateCcw,
-  Layers
+  Layers,
+  FileText,
+  UploadCloud,
+  Trash2
 } from 'lucide-react';
 import { AspectRatio, ThemeId, FontId, ApiKeyConfig, CarouselPreset } from '../types';
 import { SAMPLE_PRESETS } from '../data/samplePresets';
@@ -16,6 +18,8 @@ import { SAMPLE_PRESETS } from '../data/samplePresets';
 interface SidebarProps {
   topic: string;
   onTopicChange: (topic: string) => void;
+  sourceMaterial: string;
+  onSourceMaterialChange: (material: string) => void;
   slideCount: number;
   onSlideCountChange: (count: number) => void;
   authorName: string;
@@ -56,18 +60,11 @@ const LANGUAGES = [
   { id: 'German', label: '🇩🇪 German' },
 ];
 
-const QUICK_INSPIRATIONS = [
-  'Run Claude Code for Free with Kimi K2.6',
-  'Rahasia Ngonten Tanpa Wajah: Dari 0 ke 100K Followers',
-  '5 AI Tools yang Menghemat Waktu Kerja 20 Jam Seminggu',
-  'Framework Copywriting Hook 3 Detik yang Bikin Viral',
-  '7 Kesalahan Fatal Fresh Graduate Saat Bikin Portofolio Tech',
-  'Roadmap Belajar Full-Stack Web Dev dari Nol Sampai Mahir',
-];
-
 export const Sidebar: React.FC<SidebarProps> = ({
   topic,
   onTopicChange,
+  sourceMaterial,
+  onSourceMaterialChange,
   slideCount,
   onSlideCountChange,
   authorName,
@@ -85,36 +82,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectPreset,
   onOpenMaterialIngest,
 }) => {
-  const [showInspirations, setShowInspirations] = useState(false);
   const [showPresets, setShowPresets] = useState(false);
-  const activeProvider = apiKeyConfig?.provider || 'gemini';
+  const activeProvider = apiKeyConfig?.provider || 'xkiro';
+
+  const materialWordCount = sourceMaterial.trim()
+    ? sourceMaterial.trim().split(/\s+/).filter(Boolean).length
+    : 0;
 
   return (
     <aside className="w-full md:w-80 lg:w-[310px] border-r border-[#1f1f23] bg-[#111114] text-gray-200 flex flex-col h-full overflow-y-auto shrink-0 z-20 transition-colors duration-200">
       <div className="p-4 sm:p-5 flex-1 space-y-4">
-        {/* Main Action: Unified Material & Content Ingestion Banner */}
-        {onOpenMaterialIngest && (
-          <div className="p-3.5 rounded-2xl border bg-gradient-to-r from-blue-900/30 via-indigo-900/30 to-purple-900/30 border-indigo-500/40 shadow-lg shadow-indigo-950/40 flex items-center justify-between transition hover:border-indigo-400 group">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 group-hover:scale-105 transition">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white tracking-tight">Ingest Materi AI</p>
-                <p className="text-[10px] text-indigo-300">Teks, YouTube, Web URL, PDF</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenMaterialIngest}
-              className="px-3 py-1.5 min-h-[36px] text-xs font-bold bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl transition shadow-md shadow-indigo-600/30 flex items-center gap-1"
-            >
-              <span>Buka</span>
-              <span className="text-[10px]">✨</span>
-            </button>
-          </div>
-        )}
-
         {/* AI Provider Status Card */}
         <div className="p-3 rounded-xl bg-[#18181d] border border-[#2d2d35] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -126,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {activeProvider} AI
               </p>
               <p className="text-[10px] text-gray-400">
-                {apiKeyConfig?.apiKey ? 'Custom API Key' : 'Default Key Ready'}
+                {apiKeyConfig?.model ? apiKeyConfig.model.split('/').pop() : 'DeepSeek v3.1 / Spark'}
               </p>
             </div>
           </div>
@@ -137,6 +114,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             Pengaturan
           </button>
+        </div>
+
+        {/* PRIMARY INPUT: Source Material (NotebookLM style) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label htmlFor="source-material-input" className="text-[11px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
+              Materi Sumber (Input Utama)
+            </label>
+            {materialWordCount > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  {materialWordCount} kata
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onSourceMaterialChange('')}
+                  title="Hapus materi"
+                  className="p-1 text-gray-400 hover:text-rose-400 transition"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <textarea
+            id="source-material-input"
+            rows={5}
+            value={sourceMaterial}
+            onChange={(e) => onSourceMaterialChange(e.target.value)}
+            placeholder="Tempel naskah, artikel, transkrip, atau catatan di sini...&#10;&#10;AI akan membedah poin-poin asli dari materi ini dan otomatis menyusunnya menjadi slide carousel."
+            className="w-full bg-[#1a1a1f] border border-[#2d2d35] rounded-xl p-3 text-xs text-white placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition resize-none leading-relaxed"
+          />
+
+          {/* Ingest External Sources Button */}
+          {onOpenMaterialIngest && (
+            <button
+              type="button"
+              onClick={onOpenMaterialIngest}
+              className="w-full p-2.5 rounded-xl border border-indigo-500/30 bg-indigo-950/20 hover:bg-indigo-900/30 hover:border-indigo-400/50 text-indigo-300 text-xs font-semibold flex items-center justify-center gap-2 transition group"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition" />
+              <span>+ Ingest Link Web, YouTube, atau PDF</span>
+            </button>
+          )}
+        </div>
+
+        {/* SECONDARY INPUT: Topic / Title (Optional, Auto-extracted by AI) */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor="topic-input" className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3 text-indigo-400" />
+              Judul / Topik (Opsional)
+            </label>
+            <span className="text-[9px] text-gray-400 bg-[#1c1c22] px-1.5 py-0.5 rounded border border-[#2d2d35]">
+              Otomatis dari AI
+            </span>
+          </div>
+
+          <input
+            id="topic-input"
+            type="text"
+            value={topic}
+            onChange={(e) => onTopicChange(e.target.value)}
+            placeholder="Bisa dikosongkan (AI otomatis membuat judul)..."
+            className="w-full bg-[#1a1a1f] border border-[#2d2d35] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 outline-none focus:border-blue-500 transition"
+          />
         </div>
 
         {/* Presets Gallery Accordion */}
@@ -152,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => setShowPresets(!showPresets)}
                 className="text-[10px] uppercase font-bold tracking-wider text-blue-400 hover:text-blue-300 transition"
               >
-                {showPresets ? 'Tutup' : 'Pilih Template'}
+                {showPresets ? 'Tutup' : 'Lihat Preset'}
               </button>
             </div>
 
@@ -185,53 +230,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
         )}
-
-        {/* Topic Input Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label htmlFor="topic-input" className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-              Topik Carousel
-            </label>
-            <button
-              type="button"
-              id="inspiration-btn"
-              onClick={() => setShowInspirations(!showInspirations)}
-              className="text-[10px] uppercase font-bold tracking-wider text-blue-500 hover:text-blue-400 flex items-center gap-1 transition"
-            >
-              <Lightbulb className="w-3 h-3" />
-              {showInspirations ? 'Tutup' : 'Inspirasi AI'}
-            </button>
-          </div>
-
-          <textarea
-            id="topic-input"
-            rows={3}
-            value={topic}
-            onChange={(e) => onTopicChange(e.target.value)}
-            placeholder="Contoh: 5 Kebiasaan Kreatif yang Menghemat 20 Jam Kerja Seminggu..."
-            className="w-full bg-[#1a1a1f] border border-[#2d2d35] rounded-xl p-3 text-xs text-white placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition resize-none leading-relaxed"
-          />
-
-          {showInspirations && (
-            <div className="p-2.5 bg-[#18181d] border border-[#2d2d35] rounded-xl space-y-1.5 animate-fadeIn">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Pilih Cepat:</p>
-              {QUICK_INSPIRATIONS.map((insp, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    onTopicChange(insp);
-                    setShowInspirations(false);
-                  }}
-                  className="w-full text-left p-1.5 text-xs rounded-lg hover:bg-blue-600/20 hover:text-blue-300 text-gray-300 transition line-clamp-1"
-                >
-                  • {insp}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
 
         {/* Slide Count Slider */}
         <div className="space-y-1.5">
@@ -350,12 +348,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isGenerating ? (
             <>
               <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Menyusun Slide dengan AI...</span>
+              <span>Membedah & Menyusun Slide...</span>
             </>
           ) : (
             <>
               <Wand2 className="w-4 h-4" />
-              <span>Generate Carousel AI ({slideCount} Slide)</span>
+              <span>⚡ Olah Materi Jadi Carousel AI ({slideCount} Slide)</span>
             </>
           )}
         </button>

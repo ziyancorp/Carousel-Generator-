@@ -28,7 +28,7 @@ interface MaterialIngestionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEbookGenerated: (ebook: EbookData) => void;
-  onCarouselGenerated: (slides: Slide[], topic: string) => void;
+  onCarouselGenerated: (slides: Slide[], topic: string, sourceText?: string) => void;
   authorName: string;
   isDarkUi: boolean;
   apiKeyConfig?: ApiKeyConfig;
@@ -74,7 +74,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
 
   if (!isOpen) return null;
 
-  // 1. Fetch YouTube Transcript
+  // 1. Fetch YouTube Transcript (with resilient oEmbed fallback)
   const handleFetchYoutube = async () => {
     if (!youtubeUrl.trim()) {
       setIngestError('Silakan masukkan link YouTube yang valid.');
@@ -83,47 +83,76 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     setIsIngesting(true);
     setIngestError(null);
 
+    const cleanYt = youtubeUrl.trim();
+    let videoId = '';
+    const match = cleanYt.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+    if (match && match[1]) {
+      videoId = match[1];
+    }
+
     try {
       const res = await fetch('/api/ingest/youtube', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: youtubeUrl.trim(),
+          url: cleanYt,
           apiKey: apiKeyConfig?.apiKey,
           provider: apiKeyConfig?.provider,
         }),
       });
 
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Layanan transkrip server tidak merespons JSON. Anda dapat menyalin transkrip langsung ke tab "Tulis / Paste Naskah".');
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        setIngestedData({
+          id: `mat-${Date.now()}`,
+          sourceType: 'youtube',
+          title: data.title || 'YouTube Video',
+          sourceUrl: data.sourceUrl || cleanYt,
+          authorOrChannel: data.channelName,
+          thumbnailUrl: data.thumbnailUrl,
+          rawText: data.text,
+          wordCount: data.wordCount || data.text.split(/\s+/).length,
+          dateAdded: new Date().toLocaleTimeString(),
+          isExtractedFromCaptions: data.isExtractedFromCaptions !== false,
+        });
+        return;
       }
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal mengambil transkrip YouTube.');
-      }
-
-      setIngestedData({
-        id: `mat-${Date.now()}`,
-        sourceType: 'youtube',
-        title: data.title || 'YouTube Video',
-        sourceUrl: data.sourceUrl || youtubeUrl,
-        authorOrChannel: data.channelName,
-        thumbnailUrl: data.thumbnailUrl,
-        rawText: data.text,
-        wordCount: data.wordCount || data.text.split(/\s+/).length,
-        dateAdded: new Date().toLocaleTimeString(),
-        isExtractedFromCaptions: data.isExtractedFromCaptions !== false,
-      });
-    } catch (err: any) {
-      setIngestError(err.message || 'Terjadi kesalahan saat memproses link YouTube.');
-    } finally {
-      setIsIngesting(false);
+    } catch {
+      // Proceed to client oEmbed fallback
     }
+
+    // Client-side fallback via public YouTube oEmbed
+    try {
+      const oembedRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(cleanYt)}&format=json`);
+      if (oembedRes.ok) {
+        const oembed = await oembedRes.json();
+        const title = oembed.title || 'YouTube Video';
+        const channel = oembed.author_name || 'YouTube Creator';
+        const fallbackText = `Video YouTube: "${title}" oleh ${channel}.\n\nURL: ${cleanYt}\n\nCatatan: Video ini siap diolah oleh AI. Anda juga dapat menambahkan transkrip atau poin penting tambahan di bawah ini.`;
+        setIngestedData({
+          id: `mat-${Date.now()}`,
+          sourceType: 'youtube',
+          title,
+          sourceUrl: cleanYt,
+          authorOrChannel: channel,
+          thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : undefined,
+          rawText: fallbackText,
+          wordCount: fallbackText.split(/\s+/).length,
+          dateAdded: new Date().toLocaleTimeString(),
+          isExtractedFromCaptions: false,
+        });
+        return;
+      }
+    } catch {
+      // Ignored
+    }
+
+    setIngestError('Tidak dapat mengambil transkrip otomatis untuk video ini. Silakan salin teks atau rangkuman ke tab "Tulis / Paste Naskah".');
+    setIsIngesting(false);
   };
 
-  // 2. Fetch Web Article Content
+  // 2. Fetch Web Article Content (with Jina Reader client fallback)
   const handleFetchWeb = async () => {
     if (!webUrl.trim()) {
       setIngestError('Silakan masukkan link website atau artikel.');
@@ -131,38 +160,65 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
     }
     setIsIngesting(true);
     setIngestError(null);
+    const cleanUrl = webUrl.trim();
 
+    // Strategy 1: Server endpoint
     try {
       const res = await fetch('/api/ingest/web', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: webUrl.trim() }),
+        body: JSON.stringify({ url: cleanUrl }),
       });
 
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Layanan pembaca web server tidak aktif. Silakan salin isi artikel langsung ke tab "Tulis / Paste Naskah".');
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.text && data.text.length > 50) {
+          setIngestedData({
+            id: `mat-${Date.now()}`,
+            sourceType: 'web',
+            title: data.title || 'Artikel Web',
+            sourceUrl: data.sourceUrl || cleanUrl,
+            rawText: data.text,
+            wordCount: data.wordCount || data.text.split(/\s+/).length,
+            dateAdded: new Date().toLocaleTimeString(),
+          });
+          return;
+        }
       }
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal mengekstrak isi website.');
-      }
-
-      setIngestedData({
-        id: `mat-${Date.now()}`,
-        sourceType: 'web',
-        title: data.title || 'Artikel Web',
-        sourceUrl: data.sourceUrl || webUrl,
-        rawText: data.text,
-        wordCount: data.wordCount || data.text.split(/\s+/).length,
-        dateAdded: new Date().toLocaleTimeString(),
-      });
-    } catch (err: any) {
-      setIngestError(err.message || 'Gagal membaca konten website.');
-    } finally {
-      setIsIngesting(false);
+    } catch {
+      // Proceed to Jina Reader client fallback
     }
+
+    // Strategy 2: Client-side Jina Reader fallback
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/${cleanUrl}`);
+      if (jinaRes.ok) {
+        const jinaText = await jinaRes.text();
+        if (jinaText && jinaText.length > 50) {
+          let articleTitle = 'Artikel Web';
+          const titleMatch = jinaText.match(/Title:\s*(.+)/i);
+          if (titleMatch && titleMatch[1]) articleTitle = titleMatch[1].trim();
+          const cleanBody = jinaText.replace(/^Title:.*?\n/i, '').replace(/^URL Source:.*?\n/i, '').trim();
+
+          setIngestedData({
+            id: `mat-${Date.now()}`,
+            sourceType: 'web',
+            title: articleTitle,
+            sourceUrl: cleanUrl,
+            rawText: cleanBody,
+            wordCount: cleanBody.split(/\s+/).filter(Boolean).length,
+            dateAdded: new Date().toLocaleTimeString(),
+          });
+          return;
+        }
+      }
+    } catch {
+      // Ignored
+    }
+
+    setIngestError('Gagal membaca konten website. Silakan salin isi artikel langsung ke tab "Tulis / Paste Naskah".');
+    setIsIngesting(false);
   };
 
   // 3. Upload & Parse PDF
@@ -349,7 +405,8 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
         throw new Error(result.error || 'Gagal menghasilkan slide carousel.');
       }
 
-      onCarouselGenerated(result.slides, topicTitle);
+      const topicToUse = result.topic || topicTitle;
+      onCarouselGenerated(result.slides, topicToUse, sourceText);
       onClose();
     } catch (err: any) {
       setIngestError(err.message || 'Terjadi kesalahan saat meringkas menjadi carousel.');
