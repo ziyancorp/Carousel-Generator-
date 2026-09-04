@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Youtube,
+  Clipboard,
   Globe,
   FileUp,
   FileText,
@@ -216,6 +217,20 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
       setIsIngesting(false);
     }
   };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setCustomText((prev) => (prev ? prev + '\n\n' + text : text));
+      }
+    } catch {
+      alert('Tidak dapat membaca clipboard secara otomatis. Silakan gunakan Ctrl+V atau Command+V untuk menempel teks.');
+    }
+  };
+
+  const customTextWordCount = customText.trim() ? customText.trim().split(/\s+/).length : 0;
+  const customTextCharCount = customText.length;
 
   // 4. Ingest Raw Notes / Text
   const handleIngestText = () => {
@@ -545,36 +560,55 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="Contoh: Strategi Efektif Monetisasi Akun Instagram 2026"
+                    placeholder="Contoh: Berita Terbaru / 5 Strategi Bisnis & AI Paling Dicari 2026"
                     value={customTopic}
                     onChange={(e) => setCustomTopic(e.target.value)}
-                    className={`w-full px-3.5 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-2.5 ${
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-2.5 ${
                       isDarkUi ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Tulis atau Tempel Catatan / Draf Konten Lengkap:
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Tulis atau Tempel Catatan / Naskah Panjang:
+                    </label>
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {customTextWordCount} kata • {customTextCharCount} karakter
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handlePasteFromClipboard}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1"
+                        title="Tempel teks langsung dari clipboard"
+                      >
+                        <Clipboard className="w-3 h-3" />
+                        <span>Tempel Clipboard</span>
+                      </button>
+                    </div>
+                  </div>
                   <textarea
-                    rows={4}
-                    placeholder="Tempel materi, catatan kasar, transkrip rekaman suara, atau kerangka tulisan Anda di sini..."
+                    rows={8}
+                    placeholder="Tempel artikel berita lengkap (Detik, Kompas, Medium), draf konten, transkrip rekaman suara, atau catatan panjang Anda di sini... (Kotak ini sangat luas dan siap menampung ribuan kata)"
                     value={customText}
                     onChange={(e) => setCustomText(e.target.value)}
-                    className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                    className={`w-full min-h-[220px] max-h-[380px] px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 font-sans leading-relaxed ${
                       isDarkUi ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-[11px] text-slate-400">
+                    💡 Tips: Masukkan teks mentah apa saja, AI kami yang akan merapikan struktur judul dan isinya.
+                  </p>
                   <button
                     type="button"
                     onClick={handleIngestText}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 shrink-0"
                   >
                     <Check className="w-4 h-4" />
-                    <span>Gunakan Teks Ini Sebagai Materi</span>
+                    <span>Gunakan Naskah Ini Sebagai Materi</span>
                   </button>
                 </div>
               </div>
@@ -728,27 +762,91 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Option 1: Master E-Book */}
-              <div className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition ${
-                isDarkUi ? 'bg-indigo-950/20 border-indigo-500/30 hover:border-indigo-500/60' : 'bg-indigo-50/40 border-indigo-200'
+              {/* Option 1: Fast Track Carousel (Direct for News, Threads & Daily Tips) */}
+              <div className={`p-5 rounded-2xl border-2 flex flex-col justify-between space-y-4 transition relative overflow-hidden ${
+                isDarkUi ? 'bg-emerald-950/30 border-emerald-500/50 hover:border-emerald-400 shadow-lg shadow-emerald-900/10' : 'bg-emerald-50/70 border-emerald-300'
               }`}>
+                <div className="absolute top-3 right-3">
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    ⚡ Mode Kilat (Fast Track)
+                  </span>
+                </div>
                 <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <BookOpen className="w-5 h-5 text-indigo-400" />
-                    <h4 className="font-bold text-sm text-indigo-200">🚀 Buat Master E-Book Lengkap</h4>
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-extrabold text-sm text-emerald-300">Langsung Jadi Carousel Medsos</h4>
                   </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    AI mempelajari seluruh materi secara mendalam, menyusunnya menjadi bab/modul lengkap berstruktur rapi dengan kartu pengantar, checklist, instruksi langkah, dan pro-tips siap baca/jual.
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    <strong>Cocok untuk berita terupdate, artikel blog, dan tips harian!</strong> Tanpa perlu membuat E-Book dulu, AI langsung mengubah materi menjadi slide microblog viral lengkap dengan Hook pembuka, poin daging, dan CTA komentar.
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Jumlah Modul/Bab:</span>
+                <div className="space-y-3 pt-2 border-t border-emerald-500/20">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span>Jumlah Slide Carousel:</span>
+                    <select
+                      value={slideCount}
+                      onChange={(e) => setSlideCount(parseInt(e.target.value, 10))}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                    >
+                      <option value={5}>5 Slide Ringkas (Cepat Baca)</option>
+                      <option value={7}>7 Slide Standar (Rekomendasi)</option>
+                      <option value={8}>8 Slide Tutorial Pro</option>
+                      <option value={10}>10 Slide Deep Dive</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isProcessingAi || (!ingestedData && !customTopic)}
+                    onClick={handleGenerateCarousel}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white text-xs font-extrabold transition shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isProcessingAi && generationType === 'carousel' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>AI Sedang Merancang Carousel...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>⚡ Generate Carousel Medsos Sekarang</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Option 2: Digital Product Kit (Master E-Book) */}
+              <div className={`p-5 rounded-2xl border flex flex-col justify-between space-y-4 transition relative overflow-hidden ${
+                isDarkUi ? 'bg-indigo-950/20 border-indigo-500/30 hover:border-indigo-400 shadow-md' : 'bg-indigo-50/50 border-indigo-200'
+              }`}>
+                <div className="absolute top-3 right-3">
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                    📘 Siap Jual (Lynk.id / Shopee)
+                  </span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-extrabold text-sm text-indigo-200">Buat Master E-Book Lengkap</h4>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    <strong>Cocok untuk produk digital berbayar & kursus!</strong> AI menyusun materi menjadi bab/modul panduan interaktif lengkap dengan kartu pengantar, checklist aksi, instruksi langkah, dan pro-tips siap ekspor PDF/HTML.
+                  </p>
+                </div>
+
+                <div className="space-y-3 pt-2 border-t border-indigo-500/20">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span>Jumlah Bab / Modul:</span>
                     <select
                       value={moduleCount}
                       onChange={(e) => setModuleCount(parseInt(e.target.value, 10))}
-                      className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-xs text-white"
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
                     >
                       <option value={3}>3 Modul Ringkas</option>
                       <option value={5}>5 Modul Komprehensif (Rekomendasi)</option>
@@ -760,7 +858,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     type="button"
                     disabled={isProcessingAi || (!ingestedData && !customTopic)}
                     onClick={handleGenerateEbook}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-500 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {isProcessingAi && generationType === 'ebook' ? (
                       <>
@@ -770,57 +868,7 @@ export const MaterialIngestionModal: React.FC<MaterialIngestionModalProps> = ({
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4" />
-                        <span>Generate Master E-Book Sekarang</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Option 2: Distill to Carousel */}
-              <div className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition ${
-                isDarkUi ? 'bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/60' : 'bg-emerald-50/40 border-emerald-200'
-              }`}>
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Layers className="w-5 h-5 text-emerald-400" />
-                    <h4 className="font-bold text-sm text-emerald-200">⚡ Ringkas Jadi Carousel Slide</h4>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    AI langsung menyaring inti materi menjadi slide microblog viral untuk Instagram, LinkedIn, dan Google Slides lengkap dengan Hook, poin langkah, dan Call-To-Action.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Jumlah Slide:</span>
-                    <select
-                      value={slideCount}
-                      onChange={(e) => setSlideCount(parseInt(e.target.value, 10))}
-                      className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-xs text-white"
-                    >
-                      <option value={5}>5 Slide Ringkas</option>
-                      <option value={7}>7 Slide Standar</option>
-                      <option value={8}>8 Slide Tutorial Pro</option>
-                      <option value={10}>10 Slide Deep Dive</option>
-                    </select>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={isProcessingAi || (!ingestedData && !customTopic)}
-                    onClick={handleGenerateCarousel}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isProcessingAi && generationType === 'carousel' ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>AI Sedang Meringkas Slide...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4" />
-                        <span>Distill ke Carousel Slides</span>
+                        <span>📘 Generate Master E-Book Sekarang</span>
                       </>
                     )}
                   </button>

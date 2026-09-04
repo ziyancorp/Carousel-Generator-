@@ -25,6 +25,7 @@ import confetti from 'canvas-confetti';
 import { EbookData, EbookModule, Slide, ApiKeyConfig, DesignVariantId } from '../types';
 import { generateStandaloneEbookHtml } from '../utils/ebookHtmlExporter';
 import { VariantSelectorModal } from './VariantSelectorModal';
+import { MarketingPromptsModal } from './MarketingPromptsModal';
 import { DESIGN_VARIANTS } from '../data/designVariants';
 
 interface EbookReaderViewProps {
@@ -61,6 +62,7 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [ebookTheme, setEbookTheme] = useState<'light' | 'dark'>(isDarkUi ? 'dark' : 'light');
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
+  const [isMarketingModalOpen, setIsMarketingModalOpen] = useState(false);
 
   const activeVariant =
     DESIGN_VARIANTS.find((v) => v.id === (currentEbook.variantId || 'variant-1-tech')) ||
@@ -301,6 +303,17 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
           >
             <Palette className="w-3.5 h-3.5 text-amber-400" />
             <span>Gaya Desain: {activeVariant.name.split(' ')[1] || 'Tech'}</span>
+          </button>
+
+          {/* 4 Prompt Banner Marketing Button */}
+          <button
+            type="button"
+            onClick={() => setIsMarketingModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 text-purple-300 border border-purple-500/40 shadow-sm transition flex items-center gap-1.5 shrink-0"
+            title="Dapatkan 4 Prompt Gambar AI untuk Banner & Sampul Buku (Midjourney / Flux / Ideogram)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+            <span>4 Prompt Banner</span>
           </button>
 
           {/* Distill E-Book to Carousel Slides */}
@@ -662,6 +675,16 @@ export const EbookReaderView: React.FC<EbookReaderViewProps> = ({
         contentTitle={currentEbook.title}
         contentSubtitle={currentEbook.subtitle}
         authorName={currentEbook.author}
+      />
+      {/* 4 Prompt Banner Marketing Modal */}
+      <MarketingPromptsModal
+        isOpen={isMarketingModalOpen}
+        onClose={() => setIsMarketingModalOpen(false)}
+        topic={currentEbook.title}
+        variantId={currentEbook.variantId}
+        authorName={currentEbook.author || authorName}
+        authorHandle="@abangjal"
+        isDarkUi={isDarkUi}
       />
     </div>
   );

@@ -21,6 +21,7 @@ import { Slide, ThemeConfig, FontOption, AspectRatio, EbookData, EbookModule } f
 import { generateStandaloneCarouselHtml } from '../utils/htmlExporter';
 import { generateStandaloneEbookHtml } from '../utils/ebookHtmlExporter';
 import { DEFAULT_THEME, DEFAULT_FONT } from '../constants/themes';
+import { MarketingPromptsModal } from './MarketingPromptsModal';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -60,6 +61,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [processMsg, setProcessMsg] = useState('');
   const [copiedCaption, setCopiedCaption] = useState(false);
+  const [isMarketingModalOpen, setIsMarketingModalOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -267,6 +269,53 @@ Dibuat dengan CarouselX AI oleh ${authorHandle || authorName}
       // 3. Add caption text
       zip.file('caption-social-media.txt', generateCaption());
 
+      // 4. Add complete sales & marketing guide for Lynk.id / Shopee
+      const salesGuide = `=======================================================
+PANDUAN JUALAN DIGITAL & MATERI MARKETING SIAP PAKAI
+Produk: ${topic}
+Penulis: ${authorName} (${authorHandle})
+Dibuat dengan: CarouselX & E-Book Studio
+=======================================================
+
+1. NASKAH CAPTION INSTAGRAM / TIKTOK CAROUSEL:
+-------------------------------------------------------
+${generateCaption()}
+
+-------------------------------------------------------
+2. TEMPLATE DESKRIPSI PRODUK (UNTUK LYNK.ID / SHOPEE):
+-------------------------------------------------------
+Judul Produk: ${topic} - Panduan Praktis & Aksi Nyata (Edisi 2026)
+
+APA YANG AKAN ANDA DAPATKAN:
+- E-Book interaktif & PDF siap baca di HP / Laptop / Tablet.
+- Panduan terstruktur langkah demi langkah tanpa basa-basi bertele-tele.
+- Checklist eksekusi nyata untuk langsung dipraktekkan hari ini.
+- Master Prompt & Code Snippet siap copy-paste.
+
+UNTUK SIAPA PANDUAN INI:
+- Konten kreator, solopreneur, dan profesional yang ingin menghemat waktu.
+- Pemula yang ingin belajar topik ini tanpa pusing mencari tutorial terpisah.
+
+CARA AKSES:
+Setelah pembayaran berhasil, Anda langsung mendapatkan file PDF, HTML mandiri interaktif, dan materi pendukung.
+
+-------------------------------------------------------
+3. PESAN SIARAN PROMOSI WHATSAPP / TELEGRAM:
+-------------------------------------------------------
+Halo teman-teman! 👋
+
+Buat kamu yang lagi pengen belajar atau menguasai *${topic}* tapi bingung mulai dari mana atau gak punya waktu berjam-jam nonton video panjang...
+
+Aku baru aja merilis panduan praktis: *"${topic}"*.
+Di dalamnya sudah dirangkum langkah nyata, checklist, dan pro-tips siap pakai.
+
+Langsung cek detailnya di sini ya:
+👉 [Masukkan Link Lynk.id / Shopee Anda di sini]
+
+Semoga bermanfaat! 🚀
+`;
+      zip.file('panduan-jualan-lynkid-shopee.txt', salesGuide);
+
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const sanitized = (topic || 'carousel').slice(0, 30).replace(/[^a-zA-Z0-9_-]/g, '_');
       const zipUrl = URL.createObjectURL(zipBlob);
@@ -327,6 +376,27 @@ Dibuat dengan CarouselX AI oleh ${authorHandle || authorName}
 
           {/* Export Action Options */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* 4 Prompt Banner Marketing Button */}
+            <button
+              type="button"
+              disabled={isProcessing}
+              onClick={() => setIsMarketingModalOpen(true)}
+              className="p-3.5 rounded-xl bg-[#1a1a1f] border border-purple-500/30 hover:border-purple-400 hover:bg-[#25252c] text-left transition group flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center mb-2.5 group-hover:scale-110 transition">
+                <Sparkles className="w-4 h-4 text-pink-400" />
+              </div>
+              <div>
+                <div className="font-semibold text-xs text-white group-hover:text-purple-300 flex items-center gap-1">
+                  <span>4 Prompt Banner Marketing</span>
+                  <span className="text-[9px] px-1.5 py-0.2 bg-purple-500/20 text-purple-300 rounded font-mono font-bold">AI PROMPT</span>
+                </div>
+                <div className="text-[11px] text-gray-400 mt-0.5">
+                  Prompt Midjourney & Flux untuk 3D cover, mockup gadget, dan banner feed
+                </div>
+              </div>
+            </button>
+
             {/* Direct Export to Google Slides Deck */}
             <button
               type="button"
@@ -518,6 +588,16 @@ Dibuat dengan CarouselX AI oleh ${authorHandle || authorName}
           </button>
         </div>
       </div>
+
+      {/* 4 Prompt Banner Marketing Modal */}
+      <MarketingPromptsModal
+        isOpen={isMarketingModalOpen}
+        onClose={() => setIsMarketingModalOpen(false)}
+        topic={topic}
+        authorName={authorName}
+        authorHandle={authorHandle}
+        isDarkUi={true}
+      />
     </div>
   );
 };
