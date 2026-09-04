@@ -3,8 +3,19 @@ import express from "express";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
-import { PDFParse } from "pdf-parse";
 import { YoutubeTranscript } from "youtube-transcript";
+if (typeof globalThis.DOMMatrix === "undefined") {
+  globalThis.DOMMatrix = class DOMMatrix {
+  };
+}
+if (typeof globalThis.ImageData === "undefined") {
+  globalThis.ImageData = class ImageData {
+  };
+}
+if (typeof globalThis.Path2D === "undefined") {
+  globalThis.Path2D = class Path2D {
+  };
+}
 dotenv.config();
 var DEFAULT_XKIRO_KEY = "sk-xt-8fd3f1a5a7eb83a731221b06da8d3fe796031252d6a50f55bd8432b610c1448b";
 var DEFAULT_XKIRO_MODEL = "deepseek/deepseek-chat-v3.1";
@@ -563,6 +574,7 @@ app.post("/api/ingest/pdf", async (req, res) => {
     }
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
     const buffer = Buffer.from(cleanBase64, "base64");
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: buffer });
     const textResult = await parser.getText();
     const infoResult = await parser.getInfo().catch(() => null);

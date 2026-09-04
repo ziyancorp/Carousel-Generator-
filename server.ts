@@ -1,8 +1,18 @@
+// Polyfill browser globals for serverless Node.js environments (prevents pdfjs-dist crashes)
+if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+  (globalThis as any).DOMMatrix = class DOMMatrix {};
+}
+if (typeof (globalThis as any).ImageData === 'undefined') {
+  (globalThis as any).ImageData = class ImageData {};
+}
+if (typeof (globalThis as any).Path2D === 'undefined') {
+  (globalThis as any).Path2D = class Path2D {};
+}
+
 import express from 'express';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import { PDFParse } from 'pdf-parse';
 
 dotenv.config();
 
@@ -712,6 +722,7 @@ app.post('/api/ingest/pdf', async (req, res) => {
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(cleanBase64, 'base64');
 
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     const textResult = await parser.getText();
     const infoResult = await parser.getInfo().catch(() => null);
